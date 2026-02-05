@@ -1,0 +1,1000 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1025</width>
+    <height>704</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Inventory</string>
+  </property>
+  <property name="styleSheet">
+   <string>QMainWindow {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d0d0d, stop:1 #1a1a1a);
+}
+QWidget {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d0d0d, stop:1 #1a1a1a);
+    color: #f5f5dc;
+}
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #A0522D, stop:1 #8B4513);
+    color: white;
+    border: 2px solid #6B3410;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 11px;
+    outline: none;
+}
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #B8613C, stop:1 #9B5024);
+    border: 2px solid #8B4513;
+}
+QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6B3410, stop:1 #5a2a0b);
+    border: 2px solid #4a1f08;
+}
+QLineEdit, QSpinBox, QComboBox, QDateEdit, QDoubleSpinBox {
+    background-color: #f5f5dc;
+    color: #1a1a1a;
+    border: 2px solid #8B7355;
+    padding: 8px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus {
+    border: 2px solid #A0522D;
+    background-color: #fffef9;
+}
+QLabel {
+    color: #f5f5dc;
+    font-weight: bold;
+    font-size: 10pt;
+}
+QGroupBox {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #8B6F47, stop:1 #7A5F38);
+    color: #ffffff;
+    border: 3px solid #A0522D;
+    border-radius: 10px;
+    padding: 15px;
+    font-weight: bold;
+    font-size: 11pt;
+    margin-top: 10px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 15px;
+    padding: 0 5px 0 5px;
+    color: #f5f5dc;
+    font-weight: bold;
+}
+QTabWidget::pane {
+    border: 3px solid #A0522D;
+    background-color: #1a1a1a;
+}
+QTabBar::tab {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6B5D52, stop:1 #544945);
+    color: #d4af99;
+    padding: 10px 25px;
+    border: 2px solid #4a423c;
+    border-radius: 6px 6px 0px 0px;
+    margin-right: 2px;
+    font-weight: bold;
+}
+QTabBar::tab:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7a6b5f, stop:1 #5a5248);
+}
+QTabBar::tab:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #B8613C, stop:1 #A0522D);
+    color: #ffffff;
+    border: 2px solid #8B4513;
+}
+QTableWidget {
+    background-color: #D2B48C;
+    alternate-background-color: #E8D5C4;
+    gridline-color: #A0826D;
+    border: 2px solid #8B7355;
+    border-radius: 6px;
+}
+QTableWidget::item {
+    padding: 8px;
+    border-right: 1px solid #A0826D;
+    border-bottom: 1px solid #A0826D;
+}
+QTableWidget::item:selected {
+    background-color: #A0522D;
+    color: #ffffff;
+}
+QHeaderView::section {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #A0522D, stop:1 #8B4513);
+    color: #ffffff;
+    padding: 8px;
+    border: none;
+    border-right: 1px solid #6B3410;
+    font-weight: bold;
+    font-size: 10pt;
+}
+QScrollBar:vertical {
+    background-color: #2a2a2a;
+    width: 12px;
+    border: 1px solid #4a423c;
+}
+QScrollBar::handle:vertical {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B7355, stop:1 #A0826D);
+    border-radius: 6px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #A0826D, stop:1 #B8967D);
+}</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <item>
+     <widget class="QFrame" name="sideFrame">
+      <property name="minimumSize">
+       <size>
+        <width>160</width>
+        <height>0</height>
+       </size>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_side">
+       <item>
+        <widget class="QPushButton" name="clientsButton">
+         <property name="text">
+          <string>MATIÈRES</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="commandsButton">
+         <property name="text">
+          <string>COMMANDS</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="stocksButton">
+         <property name="text">
+          <string>EMPLOYÉ</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>0</width>
+           <height>0</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="logoutButton">
+         <property name="text">
+          <string>LOG OUT</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QTabWidget" name="tabWidget">
+      <property name="currentIndex">
+       <number>1</number>
+      </property>
+      <widget class="QWidget" name="tabHome">
+       <attribute name="title">
+        <string>Home</string>
+       </attribute>
+       <layout class="QHBoxLayout" name="horizontalLayout_main">
+        <item>
+         <widget class="QGroupBox" name="groupAdd">
+          <property name="title">
+           <string>Add an Article</string>
+          </property>
+          <layout class="QFormLayout" name="formLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="labelSKU">
+             <property name="text">
+              <string>SKU :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="lineSKU"/>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="labelName">
+             <property name="text">
+              <string>Name :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLineEdit" name="lineName"/>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="labelCategory">
+             <property name="text">
+              <string>Category :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QComboBox" name="comboCategory"/>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="labelBrand">
+             <property name="text">
+              <string>Brand :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QComboBox" name="comboBrand"/>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="labelPurchase">
+             <property name="text">
+              <string>Purchase price :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QLineEdit" name="linePurchase"/>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="labelSelling">
+             <property name="text">
+              <string>Selling Price :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QLineEdit" name="lineSelling"/>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="labelStock">
+             <property name="text">
+              <string>Stock :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QSpinBox" name="spinStock"/>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel" name="labelLocation">
+             <property name="text">
+              <string>Location :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="1">
+            <widget class="QLineEdit" name="lineLocation"/>
+           </item>
+           <item row="8" column="0" colspan="2">
+            <layout class="QHBoxLayout" name="horizontalLayout_actions">
+             <item>
+              <widget class="QPushButton" name="confirmButton">
+               <property name="text">
+                <string>Confirm</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="cancelButton">
+               <property name="text">
+                <string>Cancel</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="groupList">
+          <property name="title">
+           <string>Articles</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_list">
+           <item>
+            <widget class="QLineEdit" name="searchLine">
+             <property name="placeholderText">
+              <string>Search for an Article...</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="tableArticles">
+             <property name="columnCount">
+              <number>5</number>
+             </property>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_tableActions">
+             <item>
+              <widget class="QPushButton" name="exportButton">
+               <property name="text">
+                <string>Export PDF</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="deleteButton">
+               <property name="text">
+                <string>Delete</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabMatieres">
+       <attribute name="title">
+        <string>Matières</string>
+       </attribute>
+       <layout class="QHBoxLayout" name="horizontalLayout_matieres">
+        <item>
+         <widget class="QGroupBox" name="groupAddMatiere">
+          <property name="title">
+           <string>Add a Raw Material</string>
+          </property>
+          <layout class="QFormLayout" name="formLayout_matiere">
+           <item row="0" column="0">
+            <widget class="QLabel" name="labelMatiereName">
+             <property name="text">
+              <string>Name :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="lineMatiereName"/>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="labelMatiereType">
+             <property name="text">
+              <string>Type :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QComboBox" name="comboMatiereType">
+             <item>
+              <property name="text">
+               <string>Caramel</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Wine Red</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Light Brown</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Mahogany</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Black</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Dark Brown</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Saddle Brown</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Rugged Brown</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Natural</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="labelMatiereQuantite">
+             <property name="text">
+              <string>Quantity :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QSpinBox" name="spinMatiereQuantite"/>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="labelMatiereCouleur">
+             <property name="text">
+              <string>Color/Yield :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QLineEdit" name="lineMatiereColor"/>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="labelMatierePerte">
+             <property name="text">
+              <string>Loss :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QLineEdit" name="lineMatiereWaste"/>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="labelMatiereStatut">
+             <property name="text">
+              <string>Status :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QComboBox" name="comboMatiereStatus">
+             <item>
+              <property name="text">
+               <string>In Stock</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>In Production</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Low Stock</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Out of Stock</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="6" column="0" colspan="2">
+            <layout class="QHBoxLayout" name="horizontalLayout_matiereActions">
+             <item>
+              <widget class="QPushButton" name="confirmMatierButton">
+               <property name="text">
+                <string>Confirm</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="cancelMatierButton">
+               <property name="text">
+                <string>Cancel</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="groupListMatieres">
+          <property name="title">
+           <string>Raw Materials List</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_listMatieres">
+           <item>
+            <widget class="QLineEdit" name="searchMatieres">
+             <property name="placeholderText">
+              <string>Search for a material...</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_filterMatieres">
+             <item>
+              <widget class="QLabel" name="labelFilterStatus">
+               <property name="text">
+                <string>Filter by Status :</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboFilterStatus">
+               <item>
+                <property name="text">
+                 <string>All</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>In Stock</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>In Production</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Low Stock</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Out of Stock</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="tableMatieres">
+             <property name="columnCount">
+              <number>6</number>
+             </property>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_matieresActions">
+             <item>
+              <widget class="QPushButton" name="statisticsButton">
+               <property name="text">
+                <string>Statistics</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="exportMatiereButton">
+               <property name="text">
+                <string>Export PDF</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="deleteMatierButton">
+               <property name="text">
+                <string>Delete</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabCommands">
+       <attribute name="title">
+        <string>Commands</string>
+       </attribute>
+       <layout class="QHBoxLayout" name="horizontalLayout_commands">
+        <item>
+         <widget class="QGroupBox" name="groupAddCommand">
+          <property name="title">
+           <string>Add a Command</string>
+          </property>
+          <layout class="QFormLayout" name="formLayout_command">
+           <item row="0" column="0">
+            <widget class="QLabel" name="labelCommandID">
+             <property name="text">
+              <string>Command ID :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="lineCommandID"/>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="labelCommandType">
+             <property name="text">
+              <string>Type :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QComboBox" name="comboCommandType">
+             <item>
+              <property name="text">
+               <string>Veste</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Sac</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Chaussure</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Ceinture</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Autre</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="labelCommandSeller">
+             <property name="text">
+              <string>Responsible (Seller) :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLineEdit" name="lineCommandSeller"/>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="labelCommandQuantity">
+             <property name="text">
+              <string>Quantity :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QSpinBox" name="spinCommandQuantity"/>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="labelCommandDate">
+             <property name="text">
+              <string>Order Date :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QDateEdit" name="dateCommandOrder"/>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="labelCommandDelivery">
+             <property name="text">
+              <string>Delivery Date :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QDateEdit" name="dateCommandDelivery"/>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="labelCommandStatus">
+             <property name="text">
+              <string>Status :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QComboBox" name="comboCommandStatus">
+             <item>
+              <property name="text">
+               <string>Pending</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>In Production</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Ready</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Shipped</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Delivered</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Cancelled</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel" name="labelCommandTotal">
+             <property name="text">
+              <string>Total Price :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="1">
+            <widget class="QDoubleSpinBox" name="spinCommandTotal">
+             <property name="decimals">
+              <number>2</number>
+             </property>
+             <property name="minimum">
+              <double>0.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>999999.989999999990687</double>
+             </property>
+             <property name="singleStep">
+              <double>0.010000000000000</double>
+             </property>
+             <property name="value">
+              <double>0.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="0">
+            <widget class="QLabel" name="labelCommandEmail">
+             <property name="text">
+              <string>Email :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="1">
+            <widget class="QLineEdit" name="lineCommandEmail"/>
+           </item>
+           <item row="9" column="0" colspan="2">
+            <layout class="QHBoxLayout" name="horizontalLayout_commandActions">
+             <item>
+              <widget class="QPushButton" name="confirmCommandButton">
+               <property name="text">
+                <string>Confirm</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="cancelCommandButton">
+               <property name="text">
+                <string>Cancel</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="groupListCommands">
+          <property name="title">
+           <string>Commands List</string>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_listCommands">
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_searchCommands">
+             <item>
+              <widget class="QLineEdit" name="searchCommands">
+               <property name="placeholderText">
+                <string>Search by ID, Type, Seller...</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_filterCommands">
+             <item>
+              <widget class="QLabel" name="labelFilterCommandStatus">
+               <property name="text">
+                <string>Status :</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboFilterCommandStatus">
+               <item>
+                <property name="text">
+                 <string>All</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Pending</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>In Production</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Ready</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Shipped</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Delivered</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelSortBy">
+               <property name="text">
+                <string>Sort By :</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboSortBy">
+               <item>
+                <property name="text">
+                 <string>Date</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Quantity</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Status</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="tableCommands">
+             <property name="columnCount">
+              <number>9</number>
+             </property>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+             <column/>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_commandsActions">
+             <item>
+              <widget class="QPushButton" name="statisticsCommandButton">
+               <property name="text">
+                <string>Statistics</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="exportCommandButton">
+               <property name="text">
+                <string>Export PDF</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="sendNotificationButton">
+               <property name="text">
+                <string>Send Notification</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="deleteCommandButton">
+               <property name="text">
+                <string>Delete</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabStocks">
+       <attribute name="title">
+        <string>Employé</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_stocks">
+        <item>
+         <widget class="QLabel" name="labelStocksTitle">
+          <property name="text">
+           <string>Stocks Page</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QTableWidget" name="tableStocks">
+          <property name="columnCount">
+           <number>4</number>
+          </property>
+          <column/>
+          <column/>
+          <column/>
+          <column/>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabFunctionality">
+       <attribute name="title">
+        <string>Functionality</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_functionality">
+        <item>
+         <widget class="QLabel" name="labelFunc"/>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1025</width>
+     <height>25</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
