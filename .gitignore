@@ -1,1 +1,6 @@
 build/
+<<<<<<< HEAD
+=======
+.qtcreator/
+*.user
+>>>>>>> 4854f48 (Initial commit - projet Qt)
