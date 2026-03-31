@@ -1,0 +1,1013 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MaterialsWindow</class>
+ <widget class="QMainWindow" name="MaterialsWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>872</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Leather Factory Management</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QMainWindow { background-color: #FCF9F6; }
+
+    #sidebar { background-color: #3D362D; border-right: 1px solid #4E2C23; }
+    #sidebar QPushButton { background-color: transparent; color: #F2D2B5; text-align: left; padding: 15px 20px; border: none; font-weight: bold; text-transform: uppercase; font-size: 12px; }
+    #sidebar QPushButton:hover { background-color: #4E2C23; color: #C68E65; border-left: 4px solid #C68E65; }
+
+    #top_nav { background-color: white; border-bottom: 2px solid #F2D2B5; }
+    #top_nav QPushButton { background-color: transparent; border: none; padding: 10px 14px; color: #8B4513; font-size: 12px; font-weight: 700; border-radius: 10px; margin: 4px; }
+    #top_nav QPushButton:hover { background-color: #FFF0E0; color: #4E2C23; }
+    #top_nav QPushButton:checked { background-color: #C68E65; color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+
+    QLabel { color: #4E2C23; font-size: 13px; font-weight: bold; }
+    QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QComboBox {
+      background-color: #FFFCFA; border: 1px solid #DDC6B0; padding: 14px 16px; border-radius: 12px; color: #3D362D; font-size: 14px; min-height: 48px;
+    }
+    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QComboBox:focus {
+      border: 2px solid #C68E65; background-color: white;
+    }
+    QComboBox QAbstractItemView { background-color: white; color: black; selection-background-color: #C68E65; selection-color: white; border: 1px solid #D2B48C; }
+
+    /* Boutons primaires / secondaires (objectNames réels) */
+    #btn_mat_add, #btn_upd_confirm, #btn_upd_load, #btn_export_pdf, #btn_show_stats, #btn_notify_stock, #btn_chatbot_waste { background-color: #8B4513; color: white; border-radius: 10px; padding: 12px 26px; font-weight: bold; border: none; }
+    #btn_mat_add:hover, #btn_upd_confirm:hover, #btn_upd_load:hover, #btn_export_pdf:hover, #btn_show_stats:hover, #btn_notify_stock:hover, #btn_chatbot_waste:hover { background-color: #4E2C23; }
+
+    #btn_del_confirm { background-color: #8B0000; color: white; border-radius: 10px; padding: 12px 26px; font-weight: bold; border: none; }
+    #btn_del_confirm:hover { background-color: #600000; }
+
+    QTableWidget { background-color: white; color: #3D362D; gridline-color: #F2D2B5; border: none; alternate-background-color: #FFFCFA; selection-background-color: #F2D2B5; selection-color: #4E2C23; }
+    QHeaderView::section { background-color: #3D362D; color: #F2D2B5; padding: 8px; border: none; font-weight: bold; }
+
+    QProgressBar { background-color: #F5E9DE; border: 1px solid #E0D0C0; border-radius: 10px; text-align: center; color: #3D362D; min-height: 20px; }
+    QProgressBar::chunk { border-radius: 10px; }
+    #pb_yield::chunk { background-color: #4CAF50; }
+    #pb_loss::chunk { background-color: #F44336; }
+     </string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QFrame" name="sidebar">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>271</width>
+      <height>872</height>
+     </rect>
+    </property>
+    <property name="minimumSize">
+     <size>
+      <width>220</width>
+      <height>0</height>
+     </size>
+    </property>
+    <layout class="QVBoxLayout" name="sidebarLayout">
+     <item>
+      <widget class="QLabel" name="logo_label">
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>150</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="factory_title">
+       <property name="styleSheet">
+        <string notr="true">color: #C68E65; font-size: 20px; font-weight: bold; padding: 10px 10px 30px 10px; letter-spacing: 1px;</string>
+       </property>
+       <property name="text">
+        <string>Leather Factory Management</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_nav_orders">
+       <property name="text">
+        <string>COMMANDES</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_nav_material">
+       <property name="text">
+        <string>Matières premières</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_nav_employees">
+       <property name="text">
+        <string>EMPLOYÉS</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_nav_ai">
+       <property name="text">
+        <string>ASSISTANT IA</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="vSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>0</width>
+         <height>0</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </widget>
+   <widget class="QFrame" name="top_nav">
+    <property name="geometry">
+     <rect>
+      <x>283</x>
+      <y>1</y>
+      <width>916</width>
+      <height>73</height>
+     </rect>
+    </property>
+    <layout class="QHBoxLayout" name="navLayout">
+     <item>
+      <widget class="QPushButton" name="btn_tab_add">
+       <property name="text">
+        <string>Ajouter</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_tab_update">
+       <property name="text">
+        <string>Modifier</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_tab_delete">
+       <property name="text">
+        <string>Supprimer</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_tab_list">
+       <property name="text">
+        <string>Liste</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_tab_stats">
+       <property name="text">
+        <string>Stats</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+   <widget class="QStackedWidget" name="stackedWidget">
+    <property name="geometry">
+     <rect>
+      <x>283</x>
+      <y>74</y>
+      <width>900</width>
+      <height>780</height>
+     </rect>
+    </property>
+    <property name="currentIndex">
+     <number>1</number>
+    </property>
+    <widget class="QWidget" name="page_add">
+     <layout class="QVBoxLayout" name="verticalLayout_add">
+      <item>
+       <widget class="QFrame" name="frame_add">
+        <property name="styleSheet">
+         <string>background-color: white; border-radius: 15px; margin: 10px;</string>
+        </property>
+        <layout class="QFormLayout" name="formLayout_add">
+         <item row="0" column="0">
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>ID matière :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLineEdit" name="le_mat_name"/>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label1">
+           <property name="text">
+            <string>Matière :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QComboBox" name="cb_mat_type">
+           <item>
+            <property name="text">
+             <string>Cuir</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Tissu</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Fil</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Accessoire</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Synthétique</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label2">
+           <property name="text">
+            <string>Prix :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="dsb_mat_price">
+           <property name="maximum">
+            <double>1000000.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="label3">
+           <property name="text">
+            <string>Quantité en stock :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QSpinBox" name="sb_mat_qty">
+           <property name="maximum">
+            <number>100000</number>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="label4">
+           <property name="text">
+            <string>Couleur :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <layout class="QHBoxLayout" name="colorLayoutAdd">
+           <item>
+            <widget class="QLineEdit" name="le_mat_color"/>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_color_add">
+             <property name="minimumSize">
+              <size>
+               <width>90</width>
+               <height>30</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>120</width>
+               <height>30</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string>background-color: white; border: 1px solid #ccc;</string>
+             </property>
+             <property name="text">
+              <string>Choisir</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="label5">
+           <property name="text">
+            <string>Rendement de matière :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QDoubleSpinBox" name="dsb_mat_yield">
+           <property name="suffix">
+            <string> %</string>
+           </property>
+           <property name="maximum">
+            <double>100.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0">
+          <widget class="QLabel" name="label6">
+           <property name="text">
+            <string>Perte de matière :</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QDoubleSpinBox" name="dsb_mat_loss">
+           <property name="suffix">
+            <string> %</string>
+           </property>
+           <property name="maximum">
+            <double>100.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="1">
+          <widget class="QPushButton" name="btn_mat_add">
+           <property name="styleSheet">
+            <string>background-color: #8B4513; color: white; padding: 10px; border-radius: 5px; font-weight: bold;</string>
+           </property>
+           <property name="text">
+            <string>AJOUTER MATIÈRE</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <spacer name="verticalSpacer_add">
+        <property name="orientation">
+         <enum>Qt::Orientation::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="page_update">
+     <layout class="QVBoxLayout" name="verticalLayout_upd">
+      <item>
+       <widget class="QFrame" name="frame_upd">
+        <property name="styleSheet">
+         <string>background-color: white; border-radius: 15px; margin: 10px;</string>
+        </property>
+        <layout class="QVBoxLayout" name="vbox_upd_inner">
+         <property name="spacing">
+          <number>16</number>
+         </property>
+         <property name="leftMargin">
+          <number>10</number>
+         </property>
+         <property name="topMargin">
+          <number>10</number>
+         </property>
+         <property name="rightMargin">
+          <number>10</number>
+         </property>
+         <property name="bottomMargin">
+          <number>10</number>
+         </property>
+         <item>
+          <layout class="QHBoxLayout" name="hbox_search_upd">
+           <item>
+            <widget class="QLineEdit" name="le_upd_search_name">
+             <property name="minimumSize">
+              <size>
+               <width>686</width>
+               <height>98</height>
+              </size>
+             </property>
+             <property name="placeholderText">
+              <string>ID de la matière à modifier...</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_upd_load">
+             <property name="minimumSize">
+              <size>
+               <width>143</width>
+               <height>64</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>CHARGER</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QFormLayout" name="formLayout_upd">
+           <item row="0" column="0">
+            <widget class="QLabel" name="label10">
+             <property name="text">
+              <string>ID matière :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="le_upd_name">
+             <property name="minimumSize">
+              <size>
+               <width>724</width>
+               <height>98</height>
+              </size>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="label11">
+             <property name="text">
+              <string>Matière :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QComboBox" name="cb_upd_type">
+             <property name="minimumSize">
+              <size>
+               <width>724</width>
+               <height>98</height>
+              </size>
+             </property>
+             <item>
+              <property name="text">
+               <string>Cuir</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Tissu</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Fil</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Accessoire</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Synthétique</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="label12">
+             <property name="text">
+              <string>Prix :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QDoubleSpinBox" name="dsb_upd_price">
+             <property name="maximum">
+              <double>1000000.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="label13">
+             <property name="text">
+              <string>Quantité :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QSpinBox" name="sb_upd_qty">
+             <property name="maximum">
+              <number>100000</number>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="label14">
+             <property name="text">
+              <string>Couleur :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <layout class="QHBoxLayout" name="colorLayoutUpd">
+             <item>
+              <widget class="QLineEdit" name="le_upd_color"/>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btn_color_upd">
+               <property name="minimumSize">
+                <size>
+                 <width>90</width>
+                 <height>30</height>
+                </size>
+               </property>
+               <property name="styleSheet">
+                <string>background-color: white; border: 1px solid #ccc;</string>
+               </property>
+               <property name="text">
+                <string>Choisir</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="label15">
+             <property name="text">
+              <string>Rendement :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QDoubleSpinBox" name="dsb_upd_yield">
+             <property name="suffix">
+              <string> %</string>
+             </property>
+             <property name="maximum">
+              <double>100.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="label16">
+             <property name="text">
+              <string>Perte :</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QDoubleSpinBox" name="dsb_upd_loss">
+             <property name="suffix">
+              <string> %</string>
+             </property>
+             <property name="maximum">
+              <double>100.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_upd_confirm">
+           <property name="styleSheet">
+            <string>background-color: #8B4513; color: white; padding: 10px; border-radius: 5px;</string>
+           </property>
+           <property name="text">
+            <string>ENREGISTRER MODIFICATIONS</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <spacer name="verticalSpacer_upd">
+        <property name="orientation">
+         <enum>Qt::Orientation::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="page_delete">
+     <layout class="QVBoxLayout" name="verticalLayout_del">
+      <item>
+       <widget class="QFrame" name="frame_del">
+        <property name="styleSheet">
+         <string>background-color: white; border-radius: 15px; margin: 20px;</string>
+        </property>
+        <layout class="QVBoxLayout" name="vbox_del">
+         <item>
+          <widget class="QLabel" name="lbl_del_info">
+           <property name="text">
+            <string>Entrez l'ID de la matière à supprimer :</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="le_del_name"/>
+         </item>
+         <item>
+          <widget class="QTableWidget" name="table_del_mat">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>180</height>
+            </size>
+           </property>
+           <property name="columnCount">
+            <number>7</number>
+           </property>
+           <column>
+            <property name="text">
+             <string>ID</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Matière</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Prix</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Quantité</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Couleur</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Rendement</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Perte</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_del_confirm">
+           <property name="styleSheet">
+            <string>background-color: #8B0000; color: white; padding: 10px; border-radius: 5px; font-weight: bold;</string>
+           </property>
+           <property name="text">
+            <string>SUPPRIMER DÉFINITIVEMENT</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <spacer name="verticalSpacer_del">
+        <property name="orientation">
+         <enum>Qt::Orientation::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="page_list">
+     <layout class="QVBoxLayout" name="verticalLayout_list">
+      <item>
+       <layout class="QHBoxLayout" name="hbox_tools">
+        <item>
+         <widget class="QLineEdit" name="le_search_mat">
+          <property name="placeholderText">
+           <string>Rechercher par ID ou Catégorie...</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="cb_sort_mat">
+          <item>
+           <property name="text">
+            <string>Trier par...</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>ID</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Prix (Croissant)</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Prix (Décroissant)</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_export_pdf">
+          <property name="text">
+           <string>Export PDF</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QTableWidget" name="table_mat">
+        <property name="columnCount">
+         <number>7</number>
+        </property>
+        <column>
+         <property name="text">
+          <string>ID</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Matière</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Prix</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Quantité</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Couleur</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Rendement</string>
+         </property>
+        </column>
+        <column>
+         <property name="text">
+          <string>Perte</string>
+         </property>
+        </column>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_show_stats">
+        <property name="text">
+         <string>Voir Statistiques</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="page_stats">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_stats">
+      <item>
+       <layout class="QHBoxLayout" name="hbox_stats_actions">
+        <item>
+         <widget class="QPushButton" name="btn_notify_stock">
+          <property name="text">
+           <string>Notification Rupture</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_chatbot_waste">
+          <property name="text">
+           <string>Chatbot Anti-Gaspillage</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="gridLayout_stats">
+        <item row="0" column="0">
+         <widget class="QFrame" name="stat_card_total">
+          <property name="styleSheet">
+           <string>background-color: #C68E65; color: white; border-radius: 8px; padding: 10px;</string>
+          </property>
+          <layout class="QVBoxLayout" name="vbox_total">
+           <item>
+            <widget class="QLabel" name="lbl_t1">
+             <property name="text">
+              <string>TOTAL MATIÈRES</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_total_mat_val">
+             <property name="styleSheet">
+              <string>font-size: 24px; font-weight: bold;</string>
+             </property>
+             <property name="text">
+              <string>0</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QFrame" name="stat_card_rupture">
+          <property name="styleSheet">
+           <string>background-color: #8B0000; color: white; border-radius: 8px; padding: 10px;</string>
+          </property>
+          <layout class="QVBoxLayout" name="vbox_rupture">
+           <item>
+            <widget class="QLabel" name="lbl_r1">
+             <property name="text">
+              <string>ALERTE RUPTURE (&lt; 10)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_rupture_val">
+             <property name="styleSheet">
+              <string>font-size: 14px; font-weight: bold;</string>
+             </property>
+             <property name="text">
+              <string>Aucune alerte</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item row="1" column="0" colspan="2">
+         <widget class="QFrame" name="stat_card_waste">
+          <property name="styleSheet">
+           <string>background-color: #2E8B57; color: white; border-radius: 8px; padding: 10px;</string>
+          </property>
+          <layout class="QVBoxLayout" name="vbox_waste">
+           <item>
+            <widget class="QLabel" name="lbl_w1">
+             <property name="text">
+              <string>CONSEIL ANTI-GASPILLAGE</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_waste_val">
+             <property name="styleSheet">
+              <string>font-size: 12px; font-style: italic;</string>
+             </property>
+             <property name="text">
+              <string>Analyse en cours...</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="2">
+         <widget class="QFrame" name="frame_graph">
+          <property name="styleSheet">
+           <string>background-color: white; border-radius: 8px; padding: 10px; border: 1px solid #ccc;</string>
+          </property>
+          <layout class="QVBoxLayout" name="vbox_graph">
+           <item>
+            <widget class="QLabel" name="lbl_g1">
+             <property name="text">
+              <string>Analyse Rendement vs Perte (Moyenne)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_g2">
+             <property name="text">
+              <string>Rendement Moyen:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QProgressBar" name="pb_yield">
+             <property name="styleSheet">
+              <string>QProgressBar::chunk { background-color: #4CAF50; }</string>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_g3">
+             <property name="text">
+              <string>Perte Moyenne:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QProgressBar" name="pb_loss">
+             <property name="styleSheet">
+              <string>QProgressBar::chunk { background-color: #F44336; }</string>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QChartView" name="chart_mat_type">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>220</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </widget>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QChartView</class>
+   <extends>QGraphicsView</extends>
+   <header>QtCharts/QChartView</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

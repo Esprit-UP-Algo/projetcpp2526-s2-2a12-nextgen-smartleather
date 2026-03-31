@@ -11,6 +11,7 @@
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QCalendarWidget>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDateEdit>
 #include <QtWidgets/QDoubleSpinBox>
@@ -21,8 +22,10 @@
 #include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QListWidget>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QPushButton>
+#include <QtWidgets/QScrollArea>
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QSpinBox>
 #include <QtWidgets/QStackedWidget>
@@ -45,6 +48,7 @@ public:
     QPushButton *btn_nav_orders;
     QPushButton *btn_nav_material;
     QPushButton *btn_nav_employees;
+    QPushButton *btn_nav_suppliers;
     QPushButton *btn_nav_ai;
     QSpacerItem *vSpacer;
     QVBoxLayout *contentArea;
@@ -54,6 +58,9 @@ public:
     QPushButton *btn_tab_update;
     QPushButton *btn_tab_delete;
     QPushButton *btn_tab_list;
+    QPushButton *btn_tab_stats;
+    QPushButton *btn_tab_email_auto;
+    QPushButton *btn_tab_calendar;
     QStackedWidget *stackedWidget;
     QWidget *page_add;
     QVBoxLayout *pageAddLayout;
@@ -111,7 +118,6 @@ public:
     QLabel *label19;
     QLineEdit *le_proof_update;
     QPushButton *btn_update_confirm;
-    QSpacerItem *vSpacerUpdate;
     QWidget *page_delete;
     QVBoxLayout *pageDeleteLayout;
     QFrame *table_container;
@@ -142,12 +148,92 @@ public:
     QLabel *lbl_top_client_val;
     QFrame *chart_container;
     QVBoxLayout *chartLayout;
+    QHBoxLayout *statsActionsLayout;
+    QPushButton *btn_stat_price_asc;
+    QPushButton *btn_stat_price_desc;
+    QPushButton *btn_stat_type;
+    QLabel *lbl_price_stats;
+    QLabel *lbl_type_stats;
+    QLabel *lbl_city_stats;
+    QWidget *page_stats;
+    QVBoxLayout *pageStatsLayout;
+    QScrollArea *scrollArea_stats;
+    QWidget *scrollAreaWidgetContents_stats;
+    QVBoxLayout *pageStatsInnerLayout;
+    QLabel *label_stats_title;
+    QGridLayout *statsMainGrid;
+    QFrame *stat_main_card_orders;
+    QVBoxLayout *vboxMainOrders;
+    QLabel *lbl_main_orders_title;
+    QLabel *lbl_main_orders_value;
+    QFrame *stat_main_card_revenue;
+    QVBoxLayout *vboxMainRevenue;
+    QLabel *lbl_main_revenue_title;
+    QLabel *lbl_main_revenue_value;
+    QFrame *stat_main_card_pending;
+    QVBoxLayout *vboxMainPending;
+    QLabel *lbl_main_pending_title;
+    QLabel *lbl_main_pending_value;
+    QFrame *stats_chart_frame;
+    QVBoxLayout *chartMainLayout;
+    QLabel *lbl_main_chart_title;
+    QLabel *lbl_main_type_stats;
+    QFrame *stats_main_details_container;
+    QGridLayout *statsMainDetailsGrid;
+    QLabel *lbl_main_top_product_title;
+    QLabel *lbl_main_top_product_value;
+    QLabel *lbl_main_top_city_title;
+    QLabel *lbl_main_top_city_value;
+    QLabel *lbl_main_avg_price_title;
+    QLabel *lbl_main_avg_price_value;
+    QWidget *page_email_auto;
+    QVBoxLayout *pageEmailLayout;
+    QLabel *label_email_title;
+    QLabel *lbl_email_auto_info;
+    QSpacerItem *verticalSpacer_email_top;
+    QSpacerItem *verticalSpacer_email_bottom;
+    QWidget *page_calendar;
+    QVBoxLayout *pageCalendarLayout;
+    QLabel *label_calendar_title;
+    QHBoxLayout *calendarMainLayout;
+    QFrame *calendar_container;
+    QVBoxLayout *calendarLayout;
+    QCalendarWidget *calendarWidget;
+    QHBoxLayout *calendarLegendLayout;
+    QLabel *lbl_legend_today;
+    QLabel *lbl_legend_delivery;
+    QLabel *lbl_legend_urgent;
+    QFrame *deliveries_list_container;
+    QVBoxLayout *deliveriesListLayout;
+    QLabel *lbl_deliveries_title;
+    QListWidget *list_deliveries;
+    QLabel *lbl_selected_date;
+    QPushButton *btn_export_calendar;
+    QFrame *calendar_stats_container;
+    QHBoxLayout *calendarStatsLayout;
+    QFrame *stat_this_week;
+    QVBoxLayout *vboxThisWeek;
+    QLabel *lbl_this_week_title;
+    QLabel *lbl_this_week_value;
+    QFrame *stat_this_month;
+    QVBoxLayout *vboxThisMonth;
+    QLabel *lbl_this_month_title;
+    QLabel *lbl_this_month_value;
+    QFrame *stat_overdue;
+    QVBoxLayout *vboxOverdue;
+    QLabel *lbl_overdue_title;
+    QLabel *lbl_overdue_value;
+    QWidget *page_innov;
+    QVBoxLayout *pageInnovLayout;
     QWidget *page_material;
     QVBoxLayout *verticalLayout_material;
     QLabel *label_material;
     QWidget *page_employees;
     QVBoxLayout *verticalLayout_employees;
     QLabel *label_employees;
+    QWidget *page_suppliers;
+    QVBoxLayout *verticalLayout_suppliers;
+    QLabel *label_suppliers;
     QWidget *page_ai;
     QVBoxLayout *verticalLayout_ai;
     QLabel *label_ai;
@@ -156,7 +242,7 @@ public:
     {
         if (MainWindow->objectName().isEmpty())
             MainWindow->setObjectName("MainWindow");
-        MainWindow->resize(1200, 872);
+        MainWindow->resize(1200, 1657);
         MainWindow->setStyleSheet(QString::fromUtf8("\n"
 "    QMainWindow { background-color: #FCF9F6; }\n"
 "    \n"
@@ -165,12 +251,12 @@ public:
 "    #sidebar QPushButton:hover { background-color: #4E2C23; color: #C68E65; border-left: 4px solid #C68E65; }\n"
 "    \n"
 "    #top_nav { background-color: white; border-bottom: 2px solid #F2D2B5; }\n"
-"    #top_nav QPushButton { background-color: transparent; border: none; padding: 12px 25px; color: #8B4513; font-size: 13px; font-weight: 600; border-radius: 6px; margin: 5px; }\n"
+"    #top_nav QPushButton { background-color: transparent; border: none; padding: 8px 12px; color: #8B4513; font-size: 12px; font-weight: 600; border-radius: 6px; margin: 3px; }\n"
 "    #top_nav QPushButton:hover { background-color: #FFF0E0; color: #4E2C23; }\n"
 "    #top_nav QPushButton:checked { background-color: #C68E65; color: white; }\n"
 "    \n"
-"    #form_container, #table_container, #update_container { background-color: white; border: 1px solid #F2D2B5; border-radius: "
-                        "15px; margin: 20px; }\n"
+"   #form_container, #table_container, #update_container, #innov_container { background-color: white; border: 1px solid #F2D2B5;"
+                        " border-radius: 15px; margin: 20px; }\n"
 "    \n"
 "    QLabel { color: #4E2C23; font-size: 13px; font-weight: bold; }\n"
 "    QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit { \n"
@@ -185,8 +271,8 @@ public:
 "    QComboBox QAbstractItemView { background-color: white; color: black; selection-background-color: #C68E65; selection-color: white; border: 1px solid #D2B48C; }\n"
 "    \n"
 "    #btn_valider, #btn_update_confirm, #btn_search_update { background-color: #8B4513; color: white; border-radius: 6px; padding: 10px 30px; font-weight: bold; border: none; }\n"
-"    #btn_valider:hover, #btn_update_confirm:"
-                        "hover, #btn_search_update:hover { background-color: #4E2C23; }\n"
+"    #btn_valider:hover, #btn"
+                        "_update_confirm:hover, #btn_search_update:hover { background-color: #4E2C23; }\n"
 "    \n"
 "    #btn_delete_action { background-color: #4E2C23; color: white; border-radius: 6px; padding: 10px 30px; font-weight: bold; }\n"
 "    #btn_delete_action:hover { background-color: #3D362D; }\n"
@@ -196,6 +282,41 @@ public:
 "\n"
 "    QTableWidget { background-color: white; color: #3D362D; gridline-color: #F2D2B5; border: none; alternate-background-color: #FFFCFA; selection-background-color: #F2D2B5; selection-color: #4E2C23; }\n"
 "    QHeaderView::section { background-color: #3D362D; color: #F2D2B5; padding: 8px; border: none; font-weight: bold; }\n"
+"\n"
+"    QCalendarWidget QWidget#qt_calendar_navigationbar {\n"
+"      background: transparent;\n"
+"    }\n"
+"    QCalendarWidget QToolButton {\n"
+"      color: #3D362D;\n"
+"      background-color: #FFF0E0;\n"
+""
+                        "      border: 1px solid #E0D0C0;\n"
+"      border-radius: 10px;\n"
+"      padding: 6px 10px;\n"
+"      min-width: 34px;\n"
+"      font-weight: 600;\n"
+"    }\n"
+"    QCalendarWidget QToolButton:hover {\n"
+"      background-color: #F2D2B5;\n"
+"    }\n"
+"    QCalendarWidget QSpinBox,\n"
+"    QCalendarWidget QComboBox {\n"
+"      color: #3D362D;\n"
+"      background-color: #FFFCFA;\n"
+"      border: 1px solid #E0D0C0;\n"
+"      border-radius: 10px;\n"
+"      padding: 4px 8px;\n"
+"      font-weight: 600;\n"
+"    }\n"
+"    QCalendarWidget QAbstractItemView:enabled {\n"
+"      color: #3D362D;\n"
+"      background-color: white;\n"
+"      selection-background-color: #C68E65;\n"
+"      selection-color: white;\n"
+"    }\n"
+"    QCalendarWidget QTableView {\n"
+"      outline: 0;\n"
+"    }\n"
 "   "));
         centralwidget = new QWidget(MainWindow);
         centralwidget->setObjectName("centralwidget");
@@ -236,6 +357,11 @@ public:
         btn_nav_employees->setObjectName("btn_nav_employees");
 
         sidebarLayout->addWidget(btn_nav_employees);
+
+        btn_nav_suppliers = new QPushButton(sidebar);
+        btn_nav_suppliers->setObjectName("btn_nav_suppliers");
+
+        sidebarLayout->addWidget(btn_nav_suppliers);
 
         btn_nav_ai = new QPushButton(sidebar);
         btn_nav_ai->setObjectName("btn_nav_ai");
@@ -279,6 +405,24 @@ public:
         btn_tab_list->setCheckable(true);
 
         navLayout->addWidget(btn_tab_list);
+
+        btn_tab_stats = new QPushButton(top_nav);
+        btn_tab_stats->setObjectName("btn_tab_stats");
+        btn_tab_stats->setCheckable(true);
+
+        navLayout->addWidget(btn_tab_stats);
+
+        btn_tab_email_auto = new QPushButton(top_nav);
+        btn_tab_email_auto->setObjectName("btn_tab_email_auto");
+        btn_tab_email_auto->setCheckable(true);
+
+        navLayout->addWidget(btn_tab_email_auto);
+
+        btn_tab_calendar = new QPushButton(top_nav);
+        btn_tab_calendar->setObjectName("btn_tab_calendar");
+        btn_tab_calendar->setCheckable(true);
+
+        navLayout->addWidget(btn_tab_calendar);
 
 
         contentArea->addWidget(top_nav);
@@ -411,6 +555,9 @@ public:
 
         dsb_price = new QDoubleSpinBox(form_container);
         dsb_price->setObjectName("dsb_price");
+        dsb_price->setMinimumSize(QSize(0, 44));
+        dsb_price->setMaximumSize(QSize(16777215, 44));
+        dsb_price->setButtonSymbols(QAbstractSpinBox::NoButtons);
         dsb_price->setMaximum(100000000.000000000000000);
 
         addForm->setWidget(9, QFormLayout::FieldRole, dsb_price);
@@ -528,6 +675,7 @@ public:
 
         le_email_update = new QLineEdit(update_container);
         le_email_update->setObjectName("le_email_update");
+        le_email_update->setMaximumSize(QSize(16777215, 44));
 
         updateForm->setWidget(3, QFormLayout::FieldRole, le_email_update);
 
@@ -588,6 +736,7 @@ public:
 
         de_date_update = new QDateEdit(update_container);
         de_date_update->setObjectName("de_date_update");
+        de_date_update->setMaximumSize(QSize(16777215, 44));
         de_date_update->setCalendarPopup(true);
 
         updateForm->setWidget(6, QFormLayout::FieldRole, de_date_update);
@@ -599,6 +748,7 @@ public:
 
         de_date_delivery_update = new QDateEdit(update_container);
         de_date_delivery_update->setObjectName("de_date_delivery_update");
+        de_date_delivery_update->setMaximumSize(QSize(16777215, 44));
         de_date_delivery_update->setCalendarPopup(true);
 
         updateForm->setWidget(7, QFormLayout::FieldRole, de_date_delivery_update);
@@ -610,6 +760,9 @@ public:
 
         dsb_price_update = new QDoubleSpinBox(update_container);
         dsb_price_update->setObjectName("dsb_price_update");
+        dsb_price_update->setMinimumSize(QSize(0, 44));
+        dsb_price_update->setMaximumSize(QSize(16777215, 44));
+        dsb_price_update->setButtonSymbols(QAbstractSpinBox::NoButtons);
         dsb_price_update->setMaximum(100000000.000000000000000);
 
         updateForm->setWidget(8, QFormLayout::FieldRole, dsb_price_update);
@@ -634,10 +787,6 @@ public:
 
 
         pageUpdateLayout->addWidget(update_container);
-
-        vSpacerUpdate = new QSpacerItem(0, 0, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
-
-        pageUpdateLayout->addItem(vSpacerUpdate);
 
         stackedWidget->addWidget(page_update);
         page_delete = new QWidget();
@@ -703,6 +852,9 @@ public:
         toolbarLayout->addWidget(le_search);
 
         cb_sort = new QComboBox(tab_data);
+        cb_sort->addItem(QString());
+        cb_sort->addItem(QString());
+        cb_sort->addItem(QString());
         cb_sort->addItem(QString());
         cb_sort->addItem(QString());
         cb_sort->addItem(QString());
@@ -791,6 +943,47 @@ public:
         chart_container->setObjectName("chart_container");
         chartLayout = new QVBoxLayout(chart_container);
         chartLayout->setObjectName("chartLayout");
+        statsActionsLayout = new QHBoxLayout();
+        statsActionsLayout->setObjectName("statsActionsLayout");
+        btn_stat_price_asc = new QPushButton(chart_container);
+        btn_stat_price_asc->setObjectName("btn_stat_price_asc");
+
+        statsActionsLayout->addWidget(btn_stat_price_asc);
+
+        btn_stat_price_desc = new QPushButton(chart_container);
+        btn_stat_price_desc->setObjectName("btn_stat_price_desc");
+
+        statsActionsLayout->addWidget(btn_stat_price_desc);
+
+        btn_stat_type = new QPushButton(chart_container);
+        btn_stat_type->setObjectName("btn_stat_type");
+
+        statsActionsLayout->addWidget(btn_stat_type);
+
+
+        chartLayout->addLayout(statsActionsLayout);
+
+        lbl_price_stats = new QLabel(chart_container);
+        lbl_price_stats->setObjectName("lbl_price_stats");
+        lbl_price_stats->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
+        lbl_price_stats->setWordWrap(true);
+
+        chartLayout->addWidget(lbl_price_stats);
+
+        lbl_type_stats = new QLabel(chart_container);
+        lbl_type_stats->setObjectName("lbl_type_stats");
+        lbl_type_stats->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
+        lbl_type_stats->setWordWrap(true);
+
+        chartLayout->addWidget(lbl_type_stats);
+
+        lbl_city_stats = new QLabel(chart_container);
+        lbl_city_stats->setObjectName("lbl_city_stats");
+        lbl_city_stats->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
+        lbl_city_stats->setWordWrap(true);
+
+        chartLayout->addWidget(lbl_city_stats);
+
 
         statsGridLayout->addWidget(chart_container, 1, 0, 1, 2);
 
@@ -799,13 +992,338 @@ public:
         pageListLayout->addWidget(tabWidget_stats);
 
         stackedWidget->addWidget(page_list);
+        page_stats = new QWidget();
+        page_stats->setObjectName("page_stats");
+        pageStatsLayout = new QVBoxLayout(page_stats);
+        pageStatsLayout->setSpacing(0);
+        pageStatsLayout->setObjectName("pageStatsLayout");
+        pageStatsLayout->setContentsMargins(0, 0, 0, 0);
+        scrollArea_stats = new QScrollArea(page_stats);
+        scrollArea_stats->setObjectName("scrollArea_stats");
+        scrollArea_stats->setFrameShape(QFrame::Shape::NoFrame);
+        scrollArea_stats->setWidgetResizable(true);
+        scrollAreaWidgetContents_stats = new QWidget();
+        scrollAreaWidgetContents_stats->setObjectName("scrollAreaWidgetContents_stats");
+        scrollAreaWidgetContents_stats->setGeometry(QRect(0, 0, 961, 1595));
+        pageStatsInnerLayout = new QVBoxLayout(scrollAreaWidgetContents_stats);
+        pageStatsInnerLayout->setSpacing(15);
+        pageStatsInnerLayout->setObjectName("pageStatsInnerLayout");
+        pageStatsInnerLayout->setContentsMargins(20, 10, 20, 20);
+        label_stats_title = new QLabel(scrollAreaWidgetContents_stats);
+        label_stats_title->setObjectName("label_stats_title");
+        label_stats_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        pageStatsInnerLayout->addWidget(label_stats_title);
+
+        statsMainGrid = new QGridLayout();
+        statsMainGrid->setObjectName("statsMainGrid");
+        stat_main_card_orders = new QFrame(scrollAreaWidgetContents_stats);
+        stat_main_card_orders->setObjectName("stat_main_card_orders");
+        vboxMainOrders = new QVBoxLayout(stat_main_card_orders);
+        vboxMainOrders->setObjectName("vboxMainOrders");
+        lbl_main_orders_title = new QLabel(stat_main_card_orders);
+        lbl_main_orders_title->setObjectName("lbl_main_orders_title");
+
+        vboxMainOrders->addWidget(lbl_main_orders_title);
+
+        lbl_main_orders_value = new QLabel(stat_main_card_orders);
+        lbl_main_orders_value->setObjectName("lbl_main_orders_value");
+        lbl_main_orders_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxMainOrders->addWidget(lbl_main_orders_value);
+
+
+        statsMainGrid->addWidget(stat_main_card_orders, 0, 0, 1, 1);
+
+        stat_main_card_revenue = new QFrame(scrollAreaWidgetContents_stats);
+        stat_main_card_revenue->setObjectName("stat_main_card_revenue");
+        vboxMainRevenue = new QVBoxLayout(stat_main_card_revenue);
+        vboxMainRevenue->setObjectName("vboxMainRevenue");
+        lbl_main_revenue_title = new QLabel(stat_main_card_revenue);
+        lbl_main_revenue_title->setObjectName("lbl_main_revenue_title");
+
+        vboxMainRevenue->addWidget(lbl_main_revenue_title);
+
+        lbl_main_revenue_value = new QLabel(stat_main_card_revenue);
+        lbl_main_revenue_value->setObjectName("lbl_main_revenue_value");
+        lbl_main_revenue_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxMainRevenue->addWidget(lbl_main_revenue_value);
+
+
+        statsMainGrid->addWidget(stat_main_card_revenue, 0, 1, 1, 1);
+
+        stat_main_card_pending = new QFrame(scrollAreaWidgetContents_stats);
+        stat_main_card_pending->setObjectName("stat_main_card_pending");
+        vboxMainPending = new QVBoxLayout(stat_main_card_pending);
+        vboxMainPending->setObjectName("vboxMainPending");
+        lbl_main_pending_title = new QLabel(stat_main_card_pending);
+        lbl_main_pending_title->setObjectName("lbl_main_pending_title");
+
+        vboxMainPending->addWidget(lbl_main_pending_title);
+
+        lbl_main_pending_value = new QLabel(stat_main_card_pending);
+        lbl_main_pending_value->setObjectName("lbl_main_pending_value");
+        lbl_main_pending_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxMainPending->addWidget(lbl_main_pending_value);
+
+
+        statsMainGrid->addWidget(stat_main_card_pending, 0, 2, 1, 1);
+
+        stats_chart_frame = new QFrame(scrollAreaWidgetContents_stats);
+        stats_chart_frame->setObjectName("stats_chart_frame");
+        chartMainLayout = new QVBoxLayout(stats_chart_frame);
+        chartMainLayout->setObjectName("chartMainLayout");
+        lbl_main_chart_title = new QLabel(stats_chart_frame);
+        lbl_main_chart_title->setObjectName("lbl_main_chart_title");
+        lbl_main_chart_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        chartMainLayout->addWidget(lbl_main_chart_title);
+
+        lbl_main_type_stats = new QLabel(stats_chart_frame);
+        lbl_main_type_stats->setObjectName("lbl_main_type_stats");
+        lbl_main_type_stats->setMinimumSize(QSize(0, 150));
+        lbl_main_type_stats->setAlignment(Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop);
+        lbl_main_type_stats->setWordWrap(true);
+
+        chartMainLayout->addWidget(lbl_main_type_stats);
+
+
+        statsMainGrid->addWidget(stats_chart_frame, 1, 0, 1, 3);
+
+        stats_main_details_container = new QFrame(scrollAreaWidgetContents_stats);
+        stats_main_details_container->setObjectName("stats_main_details_container");
+        statsMainDetailsGrid = new QGridLayout(stats_main_details_container);
+        statsMainDetailsGrid->setObjectName("statsMainDetailsGrid");
+        lbl_main_top_product_title = new QLabel(stats_main_details_container);
+        lbl_main_top_product_title->setObjectName("lbl_main_top_product_title");
+
+        statsMainDetailsGrid->addWidget(lbl_main_top_product_title, 0, 0, 1, 1);
+
+        lbl_main_top_product_value = new QLabel(stats_main_details_container);
+        lbl_main_top_product_value->setObjectName("lbl_main_top_product_value");
+
+        statsMainDetailsGrid->addWidget(lbl_main_top_product_value, 0, 1, 1, 1);
+
+        lbl_main_top_city_title = new QLabel(stats_main_details_container);
+        lbl_main_top_city_title->setObjectName("lbl_main_top_city_title");
+
+        statsMainDetailsGrid->addWidget(lbl_main_top_city_title, 1, 0, 1, 1);
+
+        lbl_main_top_city_value = new QLabel(stats_main_details_container);
+        lbl_main_top_city_value->setObjectName("lbl_main_top_city_value");
+
+        statsMainDetailsGrid->addWidget(lbl_main_top_city_value, 1, 1, 1, 1);
+
+        lbl_main_avg_price_title = new QLabel(stats_main_details_container);
+        lbl_main_avg_price_title->setObjectName("lbl_main_avg_price_title");
+
+        statsMainDetailsGrid->addWidget(lbl_main_avg_price_title, 2, 0, 1, 1);
+
+        lbl_main_avg_price_value = new QLabel(stats_main_details_container);
+        lbl_main_avg_price_value->setObjectName("lbl_main_avg_price_value");
+
+        statsMainDetailsGrid->addWidget(lbl_main_avg_price_value, 2, 1, 1, 1);
+
+
+        statsMainGrid->addWidget(stats_main_details_container, 2, 0, 1, 3);
+
+
+        pageStatsInnerLayout->addLayout(statsMainGrid);
+
+        scrollArea_stats->setWidget(scrollAreaWidgetContents_stats);
+
+        pageStatsLayout->addWidget(scrollArea_stats);
+
+        stackedWidget->addWidget(page_stats);
+        page_email_auto = new QWidget();
+        page_email_auto->setObjectName("page_email_auto");
+        pageEmailLayout = new QVBoxLayout(page_email_auto);
+        pageEmailLayout->setSpacing(20);
+        pageEmailLayout->setObjectName("pageEmailLayout");
+        pageEmailLayout->setContentsMargins(40, 30, 40, 40);
+        label_email_title = new QLabel(page_email_auto);
+        label_email_title->setObjectName("label_email_title");
+        label_email_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        pageEmailLayout->addWidget(label_email_title);
+
+        lbl_email_auto_info = new QLabel(page_email_auto);
+        lbl_email_auto_info->setObjectName("lbl_email_auto_info");
+        lbl_email_auto_info->setAlignment(Qt::AlignmentFlag::AlignCenter);
+        lbl_email_auto_info->setWordWrap(true);
+
+        pageEmailLayout->addWidget(lbl_email_auto_info);
+
+        verticalSpacer_email_top = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
+
+        pageEmailLayout->addItem(verticalSpacer_email_top);
+
+        verticalSpacer_email_bottom = new QSpacerItem(20, 40, QSizePolicy::Policy::Minimum, QSizePolicy::Policy::Expanding);
+
+        pageEmailLayout->addItem(verticalSpacer_email_bottom);
+
+        stackedWidget->addWidget(page_email_auto);
+        page_calendar = new QWidget();
+        page_calendar->setObjectName("page_calendar");
+        pageCalendarLayout = new QVBoxLayout(page_calendar);
+        pageCalendarLayout->setSpacing(15);
+        pageCalendarLayout->setObjectName("pageCalendarLayout");
+        pageCalendarLayout->setContentsMargins(20, 10, 20, 20);
+        label_calendar_title = new QLabel(page_calendar);
+        label_calendar_title->setObjectName("label_calendar_title");
+        label_calendar_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        pageCalendarLayout->addWidget(label_calendar_title);
+
+        calendarMainLayout = new QHBoxLayout();
+        calendarMainLayout->setObjectName("calendarMainLayout");
+        calendar_container = new QFrame(page_calendar);
+        calendar_container->setObjectName("calendar_container");
+        calendarLayout = new QVBoxLayout(calendar_container);
+        calendarLayout->setObjectName("calendarLayout");
+        calendarWidget = new QCalendarWidget(calendar_container);
+        calendarWidget->setObjectName("calendarWidget");
+        calendarWidget->setMinimumSize(QSize(450, 350));
+        calendarWidget->setGridVisible(true);
+        calendarWidget->setVerticalHeaderFormat(QCalendarWidget::VerticalHeaderFormat::NoVerticalHeader);
+
+        calendarLayout->addWidget(calendarWidget);
+
+        calendarLegendLayout = new QHBoxLayout();
+        calendarLegendLayout->setObjectName("calendarLegendLayout");
+        lbl_legend_today = new QLabel(calendar_container);
+        lbl_legend_today->setObjectName("lbl_legend_today");
+
+        calendarLegendLayout->addWidget(lbl_legend_today);
+
+        lbl_legend_delivery = new QLabel(calendar_container);
+        lbl_legend_delivery->setObjectName("lbl_legend_delivery");
+
+        calendarLegendLayout->addWidget(lbl_legend_delivery);
+
+        lbl_legend_urgent = new QLabel(calendar_container);
+        lbl_legend_urgent->setObjectName("lbl_legend_urgent");
+
+        calendarLegendLayout->addWidget(lbl_legend_urgent);
+
+
+        calendarLayout->addLayout(calendarLegendLayout);
+
+
+        calendarMainLayout->addWidget(calendar_container);
+
+        deliveries_list_container = new QFrame(page_calendar);
+        deliveries_list_container->setObjectName("deliveries_list_container");
+        deliveriesListLayout = new QVBoxLayout(deliveries_list_container);
+        deliveriesListLayout->setObjectName("deliveriesListLayout");
+        lbl_deliveries_title = new QLabel(deliveries_list_container);
+        lbl_deliveries_title->setObjectName("lbl_deliveries_title");
+
+        deliveriesListLayout->addWidget(lbl_deliveries_title);
+
+        list_deliveries = new QListWidget(deliveries_list_container);
+        list_deliveries->setObjectName("list_deliveries");
+        list_deliveries->setMinimumSize(QSize(350, 0));
+
+        deliveriesListLayout->addWidget(list_deliveries);
+
+        lbl_selected_date = new QLabel(deliveries_list_container);
+        lbl_selected_date->setObjectName("lbl_selected_date");
+
+        deliveriesListLayout->addWidget(lbl_selected_date);
+
+        btn_export_calendar = new QPushButton(deliveries_list_container);
+        btn_export_calendar->setObjectName("btn_export_calendar");
+
+        deliveriesListLayout->addWidget(btn_export_calendar);
+
+
+        calendarMainLayout->addWidget(deliveries_list_container);
+
+
+        pageCalendarLayout->addLayout(calendarMainLayout);
+
+        calendar_stats_container = new QFrame(page_calendar);
+        calendar_stats_container->setObjectName("calendar_stats_container");
+        calendarStatsLayout = new QHBoxLayout(calendar_stats_container);
+        calendarStatsLayout->setObjectName("calendarStatsLayout");
+        stat_this_week = new QFrame(calendar_stats_container);
+        stat_this_week->setObjectName("stat_this_week");
+        vboxThisWeek = new QVBoxLayout(stat_this_week);
+        vboxThisWeek->setObjectName("vboxThisWeek");
+        lbl_this_week_title = new QLabel(stat_this_week);
+        lbl_this_week_title->setObjectName("lbl_this_week_title");
+        lbl_this_week_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxThisWeek->addWidget(lbl_this_week_title);
+
+        lbl_this_week_value = new QLabel(stat_this_week);
+        lbl_this_week_value->setObjectName("lbl_this_week_value");
+        lbl_this_week_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxThisWeek->addWidget(lbl_this_week_value);
+
+
+        calendarStatsLayout->addWidget(stat_this_week);
+
+        stat_this_month = new QFrame(calendar_stats_container);
+        stat_this_month->setObjectName("stat_this_month");
+        vboxThisMonth = new QVBoxLayout(stat_this_month);
+        vboxThisMonth->setObjectName("vboxThisMonth");
+        lbl_this_month_title = new QLabel(stat_this_month);
+        lbl_this_month_title->setObjectName("lbl_this_month_title");
+        lbl_this_month_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxThisMonth->addWidget(lbl_this_month_title);
+
+        lbl_this_month_value = new QLabel(stat_this_month);
+        lbl_this_month_value->setObjectName("lbl_this_month_value");
+        lbl_this_month_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxThisMonth->addWidget(lbl_this_month_value);
+
+
+        calendarStatsLayout->addWidget(stat_this_month);
+
+        stat_overdue = new QFrame(calendar_stats_container);
+        stat_overdue->setObjectName("stat_overdue");
+        vboxOverdue = new QVBoxLayout(stat_overdue);
+        vboxOverdue->setObjectName("vboxOverdue");
+        lbl_overdue_title = new QLabel(stat_overdue);
+        lbl_overdue_title->setObjectName("lbl_overdue_title");
+        lbl_overdue_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxOverdue->addWidget(lbl_overdue_title);
+
+        lbl_overdue_value = new QLabel(stat_overdue);
+        lbl_overdue_value->setObjectName("lbl_overdue_value");
+        lbl_overdue_value->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        vboxOverdue->addWidget(lbl_overdue_value);
+
+
+        calendarStatsLayout->addWidget(stat_overdue);
+
+
+        pageCalendarLayout->addWidget(calendar_stats_container);
+
+        stackedWidget->addWidget(page_calendar);
+        page_innov = new QWidget();
+        page_innov->setObjectName("page_innov");
+        pageInnovLayout = new QVBoxLayout(page_innov);
+        pageInnovLayout->setSpacing(0);
+        pageInnovLayout->setObjectName("pageInnovLayout");
+        pageInnovLayout->setContentsMargins(0, 0, 0, 0);
+        stackedWidget->addWidget(page_innov);
         page_material = new QWidget();
         page_material->setObjectName("page_material");
         verticalLayout_material = new QVBoxLayout(page_material);
         verticalLayout_material->setObjectName("verticalLayout_material");
         label_material = new QLabel(page_material);
         label_material->setObjectName("label_material");
-        label_material->setAlignment(Qt::AlignCenter);
+        label_material->setAlignment(Qt::AlignmentFlag::AlignCenter);
 
         verticalLayout_material->addWidget(label_material);
 
@@ -816,18 +1334,29 @@ public:
         verticalLayout_employees->setObjectName("verticalLayout_employees");
         label_employees = new QLabel(page_employees);
         label_employees->setObjectName("label_employees");
-        label_employees->setAlignment(Qt::AlignCenter);
+        label_employees->setAlignment(Qt::AlignmentFlag::AlignCenter);
 
         verticalLayout_employees->addWidget(label_employees);
 
         stackedWidget->addWidget(page_employees);
+        page_suppliers = new QWidget();
+        page_suppliers->setObjectName("page_suppliers");
+        verticalLayout_suppliers = new QVBoxLayout(page_suppliers);
+        verticalLayout_suppliers->setObjectName("verticalLayout_suppliers");
+        label_suppliers = new QLabel(page_suppliers);
+        label_suppliers->setObjectName("label_suppliers");
+        label_suppliers->setAlignment(Qt::AlignmentFlag::AlignCenter);
+
+        verticalLayout_suppliers->addWidget(label_suppliers);
+
+        stackedWidget->addWidget(page_suppliers);
         page_ai = new QWidget();
         page_ai->setObjectName("page_ai");
         verticalLayout_ai = new QVBoxLayout(page_ai);
         verticalLayout_ai->setObjectName("verticalLayout_ai");
         label_ai = new QLabel(page_ai);
         label_ai->setObjectName("label_ai");
-        label_ai->setAlignment(Qt::AlignCenter);
+        label_ai->setAlignment(Qt::AlignmentFlag::AlignCenter);
 
         verticalLayout_ai->addWidget(label_ai);
 
@@ -842,7 +1371,7 @@ public:
 
         retranslateUi(MainWindow);
 
-        stackedWidget->setCurrentIndex(0);
+        stackedWidget->setCurrentIndex(1);
         tabWidget_stats->setCurrentIndex(0);
 
 
@@ -857,11 +1386,15 @@ public:
         btn_nav_orders->setText(QCoreApplication::translate("MainWindow", "COMMANDES", nullptr));
         btn_nav_material->setText(QCoreApplication::translate("MainWindow", "Mati\303\250res Premi\303\250res", nullptr));
         btn_nav_employees->setText(QCoreApplication::translate("MainWindow", "EMPLOY\303\211S", nullptr));
+        btn_nav_suppliers->setText(QCoreApplication::translate("MainWindow", "FOURNISSEUR", nullptr));
         btn_nav_ai->setText(QCoreApplication::translate("MainWindow", "ASSISTANT IA", nullptr));
         btn_tab_add->setText(QCoreApplication::translate("MainWindow", "Ajouter une commande", nullptr));
         btn_tab_update->setText(QCoreApplication::translate("MainWindow", "Modifier une commande", nullptr));
         btn_tab_delete->setText(QCoreApplication::translate("MainWindow", "Supprimer une commande", nullptr));
-        btn_tab_list->setText(QCoreApplication::translate("MainWindow", "Liste / Stats", nullptr));
+        btn_tab_list->setText(QCoreApplication::translate("MainWindow", "Liste", nullptr));
+        btn_tab_stats->setText(QCoreApplication::translate("MainWindow", "Stats", nullptr));
+        btn_tab_email_auto->setText(QCoreApplication::translate("MainWindow", "Historique", nullptr));
+        btn_tab_calendar->setText(QCoreApplication::translate("MainWindow", "Calendrier", nullptr));
         label->setText(QCoreApplication::translate("MainWindow", "ID Commande :", nullptr));
         label1->setText(QCoreApplication::translate("MainWindow", "Type d'article :", nullptr));
         cb_article_type->setItemText(0, QCoreApplication::translate("MainWindow", "--S\303\251lectionner--", nullptr));
@@ -906,7 +1439,7 @@ public:
         label7->setText(QCoreApplication::translate("MainWindow", "Date Livraison :", nullptr));
         de_date_delivery->setDisplayFormat(QCoreApplication::translate("MainWindow", "dd/MM/yyyy", nullptr));
         label8->setText(QCoreApplication::translate("MainWindow", "Prix (TND) :", nullptr));
-        label9->setText(QCoreApplication::translate("MainWindow", "Preuve :", nullptr));
+        label9->setText(QCoreApplication::translate("MainWindow", "CIN Employ\303\251 :", nullptr));
         le_proof->setPlaceholderText(QCoreApplication::translate("MainWindow", "Lien ou nom du fichier...", nullptr));
         btn_valider->setText(QCoreApplication::translate("MainWindow", "ENREGISTRER", nullptr));
         cb_status->setItemText(0, QCoreApplication::translate("MainWindow", "--S\303\251lectionner--", nullptr));
@@ -968,7 +1501,7 @@ public:
         label17->setText(QCoreApplication::translate("MainWindow", "Date Livraison :", nullptr));
         de_date_delivery_update->setDisplayFormat(QCoreApplication::translate("MainWindow", "dd/MM/yyyy", nullptr));
         label18->setText(QCoreApplication::translate("MainWindow", "Prix (TND) :", nullptr));
-        label19->setText(QCoreApplication::translate("MainWindow", "Preuve :", nullptr));
+        label19->setText(QCoreApplication::translate("MainWindow", "CIN Employ\303\251 :", nullptr));
         le_proof_update->setPlaceholderText(QCoreApplication::translate("MainWindow", "Lien ou nom du fichier...", nullptr));
         btn_update_confirm->setText(QCoreApplication::translate("MainWindow", "MODIFIER", nullptr));
         le_id_to_delete->setPlaceholderText(QCoreApplication::translate("MainWindow", "Entrez l'ID \303\240 supprimer...", nullptr));
@@ -986,7 +1519,10 @@ public:
         le_search->setPlaceholderText(QCoreApplication::translate("MainWindow", "Rechercher (ID, Statut, Date)...", nullptr));
         cb_sort->setItemText(0, QCoreApplication::translate("MainWindow", "Trier par Date", nullptr));
         cb_sort->setItemText(1, QCoreApplication::translate("MainWindow", "Trier par Quantit\303\251", nullptr));
-        cb_sort->setItemText(2, QCoreApplication::translate("MainWindow", "Trier par Statut", nullptr));
+        cb_sort->setItemText(2, QCoreApplication::translate("MainWindow", "Trier par Prix (Croissant)", nullptr));
+        cb_sort->setItemText(3, QCoreApplication::translate("MainWindow", "Trier par Prix (Decroissant)", nullptr));
+        cb_sort->setItemText(4, QCoreApplication::translate("MainWindow", "Trier par Type", nullptr));
+        cb_sort->setItemText(5, QCoreApplication::translate("MainWindow", "Trier par Statut", nullptr));
 
         btn_pdf->setText(QCoreApplication::translate("MainWindow", "Export PDF", nullptr));
         QTableWidgetItem *___qtablewidgetitem5 = table_list->horizontalHeaderItem(0);
@@ -1006,7 +1542,7 @@ public:
         QTableWidgetItem *___qtablewidgetitem12 = table_list->horizontalHeaderItem(7);
         ___qtablewidgetitem12->setText(QCoreApplication::translate("MainWindow", "Prix", nullptr));
         QTableWidgetItem *___qtablewidgetitem13 = table_list->horizontalHeaderItem(8);
-        ___qtablewidgetitem13->setText(QCoreApplication::translate("MainWindow", "Preuve", nullptr));
+        ___qtablewidgetitem13->setText(QCoreApplication::translate("MainWindow", "CIN Employ\303\251", nullptr));
         QTableWidgetItem *___qtablewidgetitem14 = table_list->horizontalHeaderItem(9);
         ___qtablewidgetitem14->setText(QCoreApplication::translate("MainWindow", "Statut", nullptr));
         tabWidget_stats->setTabText(tabWidget_stats->indexOf(tab_data), QCoreApplication::translate("MainWindow", "Donn\303\251es & Actions", nullptr));
@@ -1019,13 +1555,92 @@ public:
         lbl_top_client_val->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 18px; font-weight: bold;", nullptr));
         lbl_top_client_val->setText(QCoreApplication::translate("MainWindow", "-", nullptr));
         chart_container->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border-radius: 8px;", nullptr));
+        btn_stat_price_asc->setText(QCoreApplication::translate("MainWindow", "Prix Croissant", nullptr));
+        btn_stat_price_desc->setText(QCoreApplication::translate("MainWindow", "Prix Decroissant", nullptr));
+        btn_stat_type->setText(QCoreApplication::translate("MainWindow", "Par Type", nullptr));
+        lbl_price_stats->setText(QCoreApplication::translate("MainWindow", "Prix: -", nullptr));
+        lbl_type_stats->setText(QCoreApplication::translate("MainWindow", "Aucune donn\303\251e.", nullptr));
+        lbl_city_stats->setText(QCoreApplication::translate("MainWindow", "Aucune donn\303\251e.", nullptr));
         tabWidget_stats->setTabText(tabWidget_stats->indexOf(tab_stats), QCoreApplication::translate("MainWindow", "Statistiques", nullptr));
-        label_material->setText(QCoreApplication::translate("MainWindow", "GESTION DES MATI\303\210RES PREMI\303\210RES", nullptr));
+        label_stats_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 26px; font-weight: bold; color: #8B4513; padding: 20px;", nullptr));
+        label_stats_title->setText(QCoreApplication::translate("MainWindow", "\360\237\223\212 TABLEAU DE BORD - STATISTIQUES", nullptr));
+        stat_main_card_orders->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #C68E65; color: white; border-radius: 12px; padding: 20px;", nullptr));
+        lbl_main_orders_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold;", nullptr));
+        lbl_main_orders_title->setText(QCoreApplication::translate("MainWindow", "TOTAL COMMANDES", nullptr));
+        lbl_main_orders_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 36px; font-weight: bold;", nullptr));
+        lbl_main_orders_value->setText(QCoreApplication::translate("MainWindow", "0", nullptr));
+        stat_main_card_revenue->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #3D362D; color: white; border-radius: 12px; padding: 20px;", nullptr));
+        lbl_main_revenue_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold;", nullptr));
+        lbl_main_revenue_title->setText(QCoreApplication::translate("MainWindow", "REVENU TOTAL", nullptr));
+        lbl_main_revenue_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 36px; font-weight: bold;", nullptr));
+        lbl_main_revenue_value->setText(QCoreApplication::translate("MainWindow", "0 DT", nullptr));
+        stat_main_card_pending->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #8B4513; color: white; border-radius: 12px; padding: 20px;", nullptr));
+        lbl_main_pending_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold;", nullptr));
+        lbl_main_pending_title->setText(QCoreApplication::translate("MainWindow", "EN ATTENTE", nullptr));
+        lbl_main_pending_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 36px; font-weight: bold;", nullptr));
+        lbl_main_pending_value->setText(QCoreApplication::translate("MainWindow", "0", nullptr));
+        stats_chart_frame->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;", nullptr));
+        lbl_main_chart_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 18px; font-weight: bold; color: #3D362D;", nullptr));
+        lbl_main_chart_title->setText(QCoreApplication::translate("MainWindow", "R\303\211PARTITION PAR TYPE DE CUIR", nullptr));
+        lbl_main_type_stats->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-size: 14px; padding: 10px;", nullptr));
+        lbl_main_type_stats->setText(QCoreApplication::translate("MainWindow", "Aucune donn\303\251e disponible.", nullptr));
+        stats_main_details_container->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;", nullptr));
+        lbl_main_top_product_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold; color: #3D362D;", nullptr));
+        lbl_main_top_product_title->setText(QCoreApplication::translate("MainWindow", "PRODUIT LE PLUS VENDU:", nullptr));
+        lbl_main_top_product_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; color: #C68E65; font-weight: bold;", nullptr));
+        lbl_main_top_product_value->setText(QCoreApplication::translate("MainWindow", "-", nullptr));
+        lbl_main_top_city_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold; color: #3D362D;", nullptr));
+        lbl_main_top_city_title->setText(QCoreApplication::translate("MainWindow", "VILLE LA PLUS ACTIVE:", nullptr));
+        lbl_main_top_city_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; color: #C68E65; font-weight: bold;", nullptr));
+        lbl_main_top_city_value->setText(QCoreApplication::translate("MainWindow", "-", nullptr));
+        lbl_main_avg_price_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; font-weight: bold; color: #3D362D;", nullptr));
+        lbl_main_avg_price_title->setText(QCoreApplication::translate("MainWindow", "PRIX MOYEN PAR COMMANDE:", nullptr));
+        lbl_main_avg_price_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 14px; color: #C68E65; font-weight: bold;", nullptr));
+        lbl_main_avg_price_value->setText(QCoreApplication::translate("MainWindow", "0 DT", nullptr));
+        label_email_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 28px; font-weight: bold; color: #8B4513; padding: 20px;", nullptr));
+        label_email_title->setText(QCoreApplication::translate("MainWindow", "\357\277\275 HISTORIQUE DES EMAILS", nullptr));
+        lbl_email_auto_info->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 16px; color: #666; padding: 10px; background-color: #e8f5e9; border-radius: 8px; margin: 0px 40px;", nullptr));
+        lbl_email_auto_info->setText(QCoreApplication::translate("MainWindow", "\342\204\271\357\270\217 Les emails sont envoy\303\251s automatiquement lors de la modification du statut des commandes.", nullptr));
+        label_calendar_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 26px; font-weight: bold; color: #8B4513; padding: 20px;", nullptr));
+        label_calendar_title->setText(QCoreApplication::translate("MainWindow", "\360\237\223\205 CALENDRIER DES LIVRAISONS", nullptr));
+        calendar_container->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 15px;", nullptr));
+        lbl_legend_today->setText(QCoreApplication::translate("MainWindow", "\360\237\237\242 Aujourd'hui", nullptr));
+        lbl_legend_delivery->setText(QCoreApplication::translate("MainWindow", "\360\237\224\265 Livraison pr\303\251vue", nullptr));
+        lbl_legend_urgent->setText(QCoreApplication::translate("MainWindow", "\360\237\224\264 Urgent", nullptr));
+        deliveries_list_container->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 15px;", nullptr));
+        lbl_deliveries_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 16px; font-weight: bold; color: #3D362D; padding-bottom: 10px;", nullptr));
+        lbl_deliveries_title->setText(QCoreApplication::translate("MainWindow", "Livraisons du jour s\303\251lectionn\303\251", nullptr));
+        list_deliveries->setStyleSheet(QCoreApplication::translate("MainWindow", "QListWidget { background-color: white; color: #3D362D; border: 1px solid #F2D2B5; }\n"
+"QListWidget::item { color: #3D362D; padding: 10px; border-bottom: 1px solid #F2D2B5; }\n"
+"QListWidget::item:selected { background-color: #C68E65; color: white; }", nullptr));
+        lbl_selected_date->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #8B4513; font-weight: bold; padding-top: 10px;", nullptr));
+        lbl_selected_date->setText(QCoreApplication::translate("MainWindow", "Date s\303\251lectionn\303\251e: -", nullptr));
+        btn_export_calendar->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #8B4513; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold;", nullptr));
+        btn_export_calendar->setText(QCoreApplication::translate("MainWindow", "Exporter le calendrier (PDF)", nullptr));
+        calendar_stats_container->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;", nullptr));
+        stat_this_week->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #C68E65; color: white; border-radius: 8px; padding: 15px;", nullptr));
+        lbl_this_week_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 12px; font-weight: bold;", nullptr));
+        lbl_this_week_title->setText(QCoreApplication::translate("MainWindow", "CETTE SEMAINE", nullptr));
+        lbl_this_week_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 28px; font-weight: bold;", nullptr));
+        lbl_this_week_value->setText(QCoreApplication::translate("MainWindow", "0", nullptr));
+        stat_this_month->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #3D362D; color: white; border-radius: 8px; padding: 15px;", nullptr));
+        lbl_this_month_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 12px; font-weight: bold;", nullptr));
+        lbl_this_month_title->setText(QCoreApplication::translate("MainWindow", "CE MOIS-CI", nullptr));
+        lbl_this_month_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 28px; font-weight: bold;", nullptr));
+        lbl_this_month_value->setText(QCoreApplication::translate("MainWindow", "0", nullptr));
+        stat_overdue->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #8B4513; color: white; border-radius: 8px; padding: 15px;", nullptr));
+        lbl_overdue_title->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 12px; font-weight: bold;", nullptr));
+        lbl_overdue_title->setText(QCoreApplication::translate("MainWindow", "EN RETARD", nullptr));
+        lbl_overdue_value->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 28px; font-weight: bold;", nullptr));
+        lbl_overdue_value->setText(QCoreApplication::translate("MainWindow", "0", nullptr));
         label_material->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 24px; font-weight: bold; color: #8B4513;", nullptr));
-        label_employees->setText(QCoreApplication::translate("MainWindow", "GESTION DES EMPLOY\303\211S", nullptr));
+        label_material->setText(QString());
         label_employees->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 24px; font-weight: bold; color: #8B4513;", nullptr));
-        label_ai->setText(QCoreApplication::translate("MainWindow", "ASSISTANT IA", nullptr));
+        label_employees->setText(QCoreApplication::translate("MainWindow", "GESTION DES EMPLOY\303\211S", nullptr));
+        label_suppliers->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 24px; font-weight: bold; color: #8B4513;", nullptr));
+        label_suppliers->setText(QCoreApplication::translate("MainWindow", "GESTION DES FOURNISSEURS", nullptr));
         label_ai->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 24px; font-weight: bold; color: #8B4513;", nullptr));
+        label_ai->setText(QCoreApplication::translate("MainWindow", "ASSISTANT IA", nullptr));
     } // retranslateUi
 
 };
