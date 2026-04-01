@@ -1,0 +1,36 @@
+# Ignorer les fichiers de configuration avec les vrais identifiants
+config.ini
+
+# Fichiers compilés
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+*.so
+*.dylib
+
+# Répertoires de build
+build/
+debug/
+release/
+.qmake.stash
+Makefile
+Makefile.Release
+Makefile.Debug
+
+# Répertoires Qt
+ui_*.h
+moc_*.cpp
+moc_predefs.h
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
