@@ -71,7 +71,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a2a22, stop:1 #2b2019);"
             "color: #f4e9dd;"
             "border-right: 2px solid #C68E65;"
-        );
+            );
         mainLayout->addWidget(ui->sidebar);
 
         auto *contentLayout = new QVBoxLayout();
@@ -194,7 +194,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "QPushButton{background:#8B4513;color:white;padding:12px 24px;border-radius:10px;font-weight:700;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-        );
+            );
     };
 
     if (ui->btn_upd_load) {
@@ -306,7 +306,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "QPushButton{background:#8B4513;color:white;border-radius:12px;padding:14px 26px;font-weight:700;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-        );
+            );
         ui->btn_upd_load->show();
     }
 
@@ -326,8 +326,8 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
     // Groupe exclusif pour les onglets supérieurs
     const QString tabStyle = "QPushButton{padding:10px 16px;border:1px solid #C68E65;border-radius:8px;background:#f7ede4;color:#3b2a20;font-weight:600;}"
-                           "QPushButton:checked{background:#C68E65;color:white;}"
-                           "QPushButton:hover{background:#e7d6c8;}";
+                             "QPushButton:checked{background:#C68E65;color:white;}"
+                             "QPushButton:hover{background:#e7d6c8;}";
     auto *navGroup = new QButtonGroup(this);
     navGroup->setExclusive(true);
     const QList<QPushButton*> navButtons = { ui->btn_tab_add, ui->btn_tab_update, ui->btn_tab_delete, ui->btn_tab_list, ui->btn_tab_stats };
@@ -435,7 +435,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
     if (Connection::instance()->createConnect()) {
         // (optionnel) création de table sur le serveur si nécessaire
         QSqlDatabase db = Connection::instance()->database();
-        
+
         // Essayer de créer la séquence MATERIALS_SEQ si elle n'existe pas
         QSqlQuery seq(db);
         if (!seq.exec("CREATE SEQUENCE MATERIALS_SEQ START WITH 1 INCREMENT BY 1 NOCACHE")) {
@@ -648,7 +648,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             ins.addBindValue(ui->dsb_mat_yield->value());
             ins.addBindValue(ui->dsb_mat_loss->value());
         }
-        
+
         if(!ins.exec()) {
             QString errorMsg = "Erreur lors de l'insertion : " + ins.lastError().text();
             qDebug() << "Insert failed:" << errorMsg;
@@ -817,9 +817,9 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
         QSqlQuery q(db);
         q.prepare(QString(
-            "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, type_matiere, prix, quantite_stock, couleur, rendement, perte_matiere "
-            "FROM %1 WHERE id_matiere=?"
-        ).arg(gMaterialsTableName));
+                      "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, type_matiere, prix, quantite_stock, couleur, rendement, perte_matiere "
+                      "FROM %1 WHERE id_matiere=?"
+                      ).arg(gMaterialsTableName));
         q.addBindValue(searchId);
 
         if (!q.exec()) {
@@ -940,7 +940,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             upd.addBindValue(ui->dsb_upd_loss->value());
             upd.addBindValue(searchIdValue);
         }
-        
+
         if(!upd.exec()) {
             QString sqlErr = upd.lastError().text();
             qDebug() << "Update failed:" << sqlErr;
@@ -998,8 +998,8 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
         // Confirmation avant suppression
         QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmer suppression",
-            "Êtes-vous sûr de vouloir supprimer '" + name + "' ?",
-            QMessageBox::Yes | QMessageBox::No);
+                                                                  "Êtes-vous sûr de vouloir supprimer '" + name + "' ?",
+                                                                  QMessageBox::Yes | QMessageBox::No);
         if (reply != QMessageBox::Yes) return;
 
         // Delete de la base Oracle
@@ -1014,7 +1014,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
         QSqlQuery del(db);
         del.prepare(QString("DELETE FROM %1 WHERE id_matiere=?").arg(gMaterialsTableName));
         del.addBindValue(idValue);
-        
+
         if(!del.exec()) {
             const QString sqlErr = del.lastError().text();
             qDebug() << "Delete failed:" << sqlErr;
@@ -1283,8 +1283,8 @@ void MaterialsWindow::loadFromDatabase()
 
     for (const QString &candidate : candidates) {
         const QString sql = QString(
-            "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, prix, quantite_stock, couleur, rendement, perte_matiere FROM %1"
-        ).arg(candidate);
+                                "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, prix, quantite_stock, couleur, rendement, perte_matiere FROM %1"
+                                ).arg(candidate);
         if (query.exec(sql)) {
             gMaterialsTableName = candidate;
             gHasNomMatiere = tableHasColumn(db, candidate, "NOM_MATIERE");
@@ -1306,20 +1306,18 @@ void MaterialsWindow::loadFromDatabase()
     ui->table_del_mat->setSortingEnabled(false);
     ui->table_del_mat->setRowCount(0);
     int row = 0;
+    const int fieldCount = query.record().count();
+    const int maxCols = qMin(7, fieldCount);
     while(query.next()) {
         ui->table_mat->insertRow(row);
-        for(int col = 0; col < 7; ++col) {
+        for(int col = 0; col < maxCols; ++col) {
             ui->table_mat->setItem(row, col, new QTableWidgetItem(query.value(col).toString()));
         }
 
         ui->table_del_mat->insertRow(row);
-        ui->table_del_mat->setItem(row, 0, new QTableWidgetItem(query.value(0).toString()));
-        ui->table_del_mat->setItem(row, 1, new QTableWidgetItem(query.value(1).toString()));
-        ui->table_del_mat->setItem(row, 2, new QTableWidgetItem(query.value(2).toString()));
-        ui->table_del_mat->setItem(row, 3, new QTableWidgetItem(query.value(3).toString()));
-        ui->table_del_mat->setItem(row, 4, new QTableWidgetItem(query.value(4).toString()));
-        ui->table_del_mat->setItem(row, 5, new QTableWidgetItem(query.value(5).toString()));
-        ui->table_del_mat->setItem(row, 6, new QTableWidgetItem(query.value(6).toString()));
+        for (int col = 0; col < maxCols; ++col) {
+            ui->table_del_mat->setItem(row, col, new QTableWidgetItem(query.value(col).toString()));
+        }
 
         ++row;
     }

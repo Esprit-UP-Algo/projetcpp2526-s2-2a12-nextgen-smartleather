@@ -92,7 +92,7 @@ private:
     int currentSortColumn = 0;
     Qt::SortOrder currentSortOrder = Qt::DescendingOrder;
     MaterialsWindow *materialsWindow = nullptr;
-    
+
     // Configuration SMTP
     QString smtpServer = "smtp.gmail.com";
     int smtpPort = 587;

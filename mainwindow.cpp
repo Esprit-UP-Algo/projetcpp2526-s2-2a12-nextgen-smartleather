@@ -13,6 +13,7 @@
 #include <QPainter>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSqlRecord>
 #include <QDebug>
 #include <QFileDialog>
 #include <QFile>
@@ -78,6 +79,70 @@ QString detectOrdersTableName(QSqlDatabase &db)
     return {};
 }
 
+// Cache des colonnes par table pour éviter les requêtes répétées
+static QMap<QString, QStringList> s_colCache;
+
+// Non utilisée — gardée pour compatibilité de signature
+QStringList getTableColumns(QSqlDatabase &, const QString &) { return {}; }
+
+struct OrderColumns {
+    QString id       = "ID_COMMANDE";
+    QString type     = "TYPE_PRODUIT";
+    QString qty      = "QUANTITE";
+    QString email    = "EMAIL_CLIENT";
+    QString status   = "STATUT";
+    QString dateCmd  = "DATE_COMMANDE";
+    QString dateLivr = "DATE_LIVRAISON_PREVUE";
+    QString price    = "PRIX_TOTAL";
+    QString cin      = "CIN_EMPLOYE";
+    bool valid = true;
+};
+
+OrderColumns detectOrderColumns(QSqlDatabase &, const QString &tableName)
+{
+    static QMap<QString, OrderColumns> cache;
+    if (!cache.contains(tableName)) cache[tableName] = OrderColumns{};
+    return cache[tableName];
+}
+
+struct EmpColumns {
+    QString id           = "CIN_EMPLOYE";
+    QString nom          = "NOM";
+    QString poste        = "POSTE";
+    QString adresse      = "ADRESSE";
+    QString telephone    = "TELEPHONE";
+    QString dateEmbauche = "DATE_EMBAUCHE";
+    QString salaire      = "SALAIRE";
+    QString statut       = "STATUT";
+    QString sexe         = "SEXE";
+    bool valid = true;
+};
+
+EmpColumns detectEmpColumns(QSqlDatabase &, const QString &tableName)
+{
+    static QMap<QString, EmpColumns> cache;
+    if (!cache.contains(tableName)) cache[tableName] = EmpColumns{};
+    return cache[tableName];
+}
+
+QString detectEmployeeTableName(QSqlDatabase &db)
+{
+    static QString cached;
+    if (!cached.isEmpty()) return cached;
+
+    const QStringList candidates = {"EMPLOYE", "EMPLOYES", "EMPLOYEE", "EMPLOYEES"};
+    for (const QString &candidate : candidates) {
+        QSqlQuery q(db);
+        q.prepare("SELECT COUNT(*) FROM user_tables WHERE table_name = :tableName");
+        q.bindValue(":tableName", candidate);
+        if (q.exec() && q.next() && q.value(0).toInt() > 0) {
+            cached = candidate;
+            return cached;
+        }
+    }
+    return {};
+}
+
 bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, const QString &orderId, QString *errorOut = nullptr)
 {
     QSqlQuery fkQuery(db);
@@ -90,7 +155,7 @@ bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, c
         "WHERE fk.constraint_type = 'R' "
         "AND pk.table_name = :parentTable "
         "AND pkc.column_name = 'ID_COMMANDE'"
-    );
+        );
     fkQuery.bindValue(":parentTable", parentTableName.toUpper());
 
     if (!fkQuery.exec()) {
@@ -115,7 +180,7 @@ bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, c
         if (!childDelete.exec()) {
             if (errorOut) {
                 *errorOut = QString("Suppression des enregistrements liés échouée (%1.%2): %3")
-                    .arg(childTable, childColumn, childDelete.lastError().text());
+                                .arg(childTable, childColumn, childDelete.lastError().text());
             }
             return false;
         }
@@ -313,7 +378,7 @@ MainWindow::MainWindow(QWidget *parent)
             "QLineEdit:placeholder{color:#8c715f;}"
             "QComboBox{background:#fff;border:1px solid #C68E65;border-radius:6px;color:#3b2a20;padding:6px;font-weight:600;}"
             "QComboBox QAbstractItemView{background:#fff;border:1px solid #C68E65;color:#3b2a20;}"
-        );
+            );
     };
     styleSearchField(ui->le_search);
     styleSearchField(ui->cb_sort);
@@ -324,7 +389,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Validateur Qt : force les nombres entiers positifs (1 à 2147483647)
         QIntValidator *idValidator = new QIntValidator(1, 2147483647, ui->le_id);
         ui->le_id->setValidator(idValidator);
-        
+
         // Coloration visuelle pendant la saisie
         connect(ui->le_id, &QLineEdit::textChanged, this, [=](const QString &text) {
             bool valid = !text.isEmpty();
@@ -454,19 +519,19 @@ MainWindow::MainWindow(QWidget *parent)
             "QPushButton{background:#8B4513;color:white;padding:10px;border-radius:8px;font-weight:600;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-        );
+            );
     };
 
     for (QPushButton *btn : {
-        ui->btn_valider,
-        ui->btn_update_confirm,
-        ui->btn_delete_action,
-        ui->btn_search_update,
-        ui->btn_pdf,
-        ui->btn_stat_price_asc,
-        ui->btn_stat_price_desc,
-        ui->btn_stat_type
-    }) {
+             ui->btn_valider,
+             ui->btn_update_confirm,
+             ui->btn_delete_action,
+             ui->btn_search_update,
+             ui->btn_pdf,
+             ui->btn_stat_price_asc,
+             ui->btn_stat_price_desc,
+             ui->btn_stat_type
+         }) {
         stylePrimaryBtn(btn);
     }
 
@@ -560,7 +625,7 @@ MainWindow::MainWindow(QWidget *parent)
             "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #5e4334, stop:1 #3b2b21);"
             "border-right: 2px solid #C68E65;"
             "}"
-        );
+            );
     }
 
     aiNetwork = new QNetworkAccessManager(this);
@@ -615,6 +680,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->btn_nav_employees, &QPushButton::clicked, this, [=]() {
         ui->stackedWidget->setCurrentWidget(ui->page_employees);
         ui->top_nav->setVisible(false);
+        // Afficher directement l'onglet "Liste / Stats" et charger les données
+        if (employeeTabButtons.size() > 3 && employeeTabButtons[3])
+            employeeTabButtons[3]->click();
     });
 
     // 4. FOURNISSEURS
@@ -644,8 +712,8 @@ MainWindow::MainWindow(QWidget *parent)
         QString intro;
         if (geminiApiKey.isEmpty()) {
             intro = envSet
-                ? QString("Clé Gemini non lue (env présente, taille %1). Relancez depuis ce terminal ou placez .env.local.").arg(envLen)
-                : "Mode connecté prêt. Configurez GEMINI_API_KEY ou .env.local pour activer les réponses IA.";
+                        ? QString("Clé Gemini non lue (env présente, taille %1). Relancez depuis ce terminal ou placez .env.local.").arg(envLen)
+                        : "Mode connecté prêt. Configurez GEMINI_API_KEY ou .env.local pour activer les réponses IA.";
         } else {
             intro = "Connexion Gemini prête. Posez vos questions sur les matières et les stocks.";
         }
@@ -782,31 +850,49 @@ MainWindow::MainWindow(QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
         qDebug() << "Insertion dans la table" << tableName;
 
+        const OrderColumns cols = detectOrderColumns(db, tableName);
+        if (!cols.valid) {
+            const QStringList realCols = getTableColumns(db, tableName);
+            QMessageBox::critical(this, "Erreur Base de données",
+                                  QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2\n\n"
+                                          "Ajoutez vos noms de colonnes dans detectOrderColumns().")
+                                      .arg(tableName, realCols.join(", ")));
+            return;
+        }
+
+        // Construire INSERT dynamiquement
+        QStringList insCols = {cols.id};
+        QStringList insVals = {":id"};
+        if (!cols.type.isEmpty())    { insCols << cols.type;    insVals << ":type"; }
+        if (!cols.qty.isEmpty())     { insCols << cols.qty;     insVals << ":qty"; }
+        if (!cols.email.isEmpty())   { insCols << cols.email;   insVals << ":email"; }
+        if (!cols.status.isEmpty())  { insCols << cols.status;  insVals << ":status"; }
+        if (!cols.dateCmd.isEmpty()) { insCols << cols.dateCmd; insVals << ":date"; }
+        if (!cols.dateLivr.isEmpty()){ insCols << cols.dateLivr;insVals << ":dateDel"; }
+        if (!cols.price.isEmpty())   { insCols << cols.price;   insVals << ":price"; }
+        if (!cols.cin.isEmpty())     { insCols << cols.cin;     insVals << ":cin"; }
+
         QSqlQuery query(db);
-        query.prepare(QString(
-            "INSERT INTO %1 (ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, "
-            "STATUT, DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE) "
-            "VALUES (:id, :type, :qty, :email, :status, :date, :dateDel, :price, :cin)"
-        ).arg(tableName));
-        
+        query.prepare(QString("INSERT INTO %1 (%2) VALUES (%3)")
+                          .arg(tableName, insCols.join(", "), insVals.join(", ")));
         query.bindValue(":id", id);
-        query.bindValue(":type", type);
-        query.bindValue(":qty", qty);
-        query.bindValue(":email", email);
-        query.bindValue(":status", status);
-        query.bindValue(":date", dateOrder);
-        query.bindValue(":dateDel", dateDel);
-        query.bindValue(":price", price);
-        query.bindValue(":cin", QString::fromLatin1(kDefaultEmployeeCin));
-        
+        if (!cols.type.isEmpty())    query.bindValue(":type",    type);
+        if (!cols.qty.isEmpty())     query.bindValue(":qty",     qty);
+        if (!cols.email.isEmpty())   query.bindValue(":email",   email);
+        if (!cols.status.isEmpty())  query.bindValue(":status",  status);
+        if (!cols.dateCmd.isEmpty()) query.bindValue(":date",    dateOrder);
+        if (!cols.dateLivr.isEmpty())query.bindValue(":dateDel", dateDel);
+        if (!cols.price.isEmpty())   query.bindValue(":price",   price);
+        if (!cols.cin.isEmpty())     query.bindValue(":cin",     QString::fromLatin1(kDefaultEmployeeCin));
+
         if (!query.exec()) {
-            QMessageBox::critical(this, "Erreur Base de données", 
-                "Erreur lors de l'insertion dans la base de données:\n" + query.lastError().text());
+            QMessageBox::critical(this, "Erreur Base de données",
+                                  "Erreur lors de l'insertion dans la base de données:\n" + query.lastError().text());
             qDebug() << "Erreur SQL:" << query.lastError().text();
             return;
         }
@@ -832,9 +918,9 @@ MainWindow::MainWindow(QWidget *parent)
                 int count = verify.value(0).toInt();
                 qDebug() << "Vérification insertion (count) =" << count;
                 if (count == 0) {
-                    QMessageBox::warning(this, "Attention", 
-                        "INSERT OK mais la ligne n'apparaît pas dans la table vérifiée.\n"
-                        "Ca arrive si vous n'êtes pas sur le même schéma/utilisateur dans SQL Developer.");
+                    QMessageBox::warning(this, "Attention",
+                                         "INSERT OK mais la ligne n'apparaît pas dans la table vérifiée.\n"
+                                         "Ca arrive si vous n'êtes pas sur le même schéma/utilisateur dans SQL Developer.");
                 }
             }
         }
@@ -870,12 +956,12 @@ MainWindow::MainWindow(QWidget *parent)
 
         // Notification simple si la commande est "Prête"
         if (status == "Prête" || status == "Prete") {
-            QMessageBox::information(this, "Commande prête", 
-                QString("La commande %1 est prête!\nVous pouvez envoyer un email au client %2").arg(id, email));
+            QMessageBox::information(this, "Commande prête",
+                                     QString("La commande %1 est prête!\nVous pouvez envoyer un email au client %2").arg(id, email));
         }
 
         QMessageBox::information(this, "Succès", "La commande a été enregistrée !");
-        
+
         // Réinitialiser le formulaire
         ui->le_id->clear();
         ui->cb_article_type->setCurrentIndex(0);
@@ -907,21 +993,32 @@ MainWindow::MainWindow(QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
 
         QSqlQuery q(db);
-        q.prepare(QString(
-            "SELECT ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
-            "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE "
-            "FROM %1 WHERE ID_COMMANDE = :id"
-        ).arg(tableName));
+        const OrderColumns cols = detectOrderColumns(db, tableName);
+        if (!cols.valid) {
+            const QStringList realCols = getTableColumns(db, tableName);
+            QMessageBox::critical(this, "Erreur Base de données",
+                                  QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2")
+                                      .arg(tableName, realCols.join(", ")));
+            return;
+        }
+        QStringList selCols = {cols.id, cols.type, cols.qty};
+        if (!cols.email.isEmpty())    selCols << cols.email;    else selCols << "NULL";
+        if (!cols.status.isEmpty())   selCols << cols.status;   else selCols << "NULL";
+        if (!cols.dateCmd.isEmpty())  selCols << cols.dateCmd;  else selCols << "NULL";
+        if (!cols.dateLivr.isEmpty()) selCols << cols.dateLivr; else selCols << "NULL";
+        if (!cols.price.isEmpty())    selCols << cols.price;    else selCols << "0";
+        q.prepare(QString("SELECT %1 FROM %2 WHERE %3 = :id")
+                      .arg(selCols.join(", "), tableName, cols.id));
         q.bindValue(":id", searchId);
 
         if (!q.exec()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Erreur lors de la recherche:\n" + q.lastError().text());
+                                  "Erreur lors de la recherche:\n" + q.lastError().text());
             qDebug() << "Erreur SQL (search update):" << q.lastError().text();
             return;
         }
@@ -1043,7 +1140,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
 
@@ -1052,41 +1149,59 @@ MainWindow::MainWindow(QWidget *parent)
         int oldQty = 0;
         double oldPrice = 0.0;
         QDate oldOrderDate, oldDeliveryDate;
-        
+
+        const OrderColumns cols = detectOrderColumns(db, tableName);
+
         QSqlQuery qOld(db);
-        qOld.prepare(QString("SELECT TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
-                            "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL "
-                            "FROM %1 WHERE ID_COMMANDE = :id").arg(tableName));
-        qOld.bindValue(":id", id);
-        if (qOld.exec() && qOld.next()) {
-            oldType = qOld.value(0).toString().trimmed();
-            oldQty = qOld.value(1).toInt();
-            oldEmail = qOld.value(2).toString().trimmed();
-            oldStatus = qOld.value(3).toString().trimmed();
-            oldOrderDate = qOld.value(4).toDate();
-            oldDeliveryDate = qOld.value(5).toDate();
-            oldPrice = qOld.value(6).toDouble();
+        if (cols.valid) {
+            QStringList selOld = {cols.type, cols.qty};
+            if (!cols.email.isEmpty())    selOld << cols.email;    else selOld << "NULL";
+            if (!cols.status.isEmpty())   selOld << cols.status;   else selOld << "NULL";
+            if (!cols.dateCmd.isEmpty())  selOld << cols.dateCmd;  else selOld << "NULL";
+            if (!cols.dateLivr.isEmpty()) selOld << cols.dateLivr; else selOld << "NULL";
+            if (!cols.price.isEmpty())    selOld << cols.price;    else selOld << "0";
+            qOld.prepare(QString("SELECT %1 FROM %2 WHERE %3 = :id")
+                             .arg(selOld.join(", "), tableName, cols.id));
+            qOld.bindValue(":id", id);
+            if (qOld.exec() && qOld.next()) {
+                oldType         = qOld.value(0).toString().trimmed();
+                oldQty          = qOld.value(1).toInt();
+                oldEmail        = qOld.value(2).toString().trimmed();
+                oldStatus       = qOld.value(3).toString().trimmed();
+                oldOrderDate    = parseDateLoose(qOld.value(4).toString());
+                oldDeliveryDate = parseDateLoose(qOld.value(5).toString());
+                oldPrice        = qOld.value(6).toDouble();
+            }
         }
 
         QSqlQuery q(db);
-        q.prepare(QString(
-            "UPDATE %1 SET "
-            "TYPE_PRODUIT = :type, QUANTITE = :qty, EMAIL_CLIENT = :email, "
-            "STATUT = :status, DATE_COMMANDE = :date, DATE_LIVRAISON_PREVUE = :dateDel, PRIX_TOTAL = :price "
-            "WHERE ID_COMMANDE = :id"
-        ).arg(tableName));
-        q.bindValue(":type", type);
-        q.bindValue(":qty", qty);
-        q.bindValue(":email", email);
-        q.bindValue(":status", status);
-        q.bindValue(":date", dateOrder);
-        q.bindValue(":dateDel", dateDel);
-        q.bindValue(":price", price);
+        // Construire l'UPDATE dynamiquement
+        QStringList setParts;
+        if (!cols.type.isEmpty())    setParts << cols.type    + " = :type";
+        if (!cols.qty.isEmpty())     setParts << cols.qty     + " = :qty";
+        if (!cols.email.isEmpty())   setParts << cols.email   + " = :email";
+        if (!cols.status.isEmpty())  setParts << cols.status  + " = :status";
+        if (!cols.dateCmd.isEmpty()) setParts << cols.dateCmd + " = :date";
+        if (!cols.dateLivr.isEmpty())setParts << cols.dateLivr+ " = :dateDel";
+        if (!cols.price.isEmpty())   setParts << cols.price   + " = :price";
+        if (setParts.isEmpty()) {
+            QMessageBox::critical(this, "Erreur", "Aucune colonne modifiable détectée.");
+            return;
+        }
+        q.prepare(QString("UPDATE %1 SET %2 WHERE %3 = :id")
+                      .arg(tableName, setParts.join(", "), cols.id));
+        if (!cols.type.isEmpty())    q.bindValue(":type",    type);
+        if (!cols.qty.isEmpty())     q.bindValue(":qty",     qty);
+        if (!cols.email.isEmpty())   q.bindValue(":email",   email);
+        if (!cols.status.isEmpty())  q.bindValue(":status",  status);
+        if (!cols.dateCmd.isEmpty()) q.bindValue(":date",    dateOrder);
+        if (!cols.dateLivr.isEmpty())q.bindValue(":dateDel", dateDel);
+        if (!cols.price.isEmpty())   q.bindValue(":price",   price);
         q.bindValue(":id", id);
 
         if (!q.exec()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Erreur lors de la mise à jour:\n" + q.lastError().text());
+                                  "Erreur lors de la mise à jour:\n" + q.lastError().text());
             qDebug() << "Erreur SQL (update):" << q.lastError().text();
             return;
         }
@@ -1107,7 +1222,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Envoi automatique d'email si N'IMPORTE QUEL champ a été modifié
         bool hasChanges = false;
         QStringList changes; // Liste des modifications pour le message
-        
+
         if (oldType != type) {
             hasChanges = true;
             changes << QString("Type de produit: %1 → %2").arg(oldType, type);
@@ -1127,19 +1242,19 @@ MainWindow::MainWindow(QWidget *parent)
         if (oldOrderDate != dateOrder) {
             hasChanges = true;
             changes << QString("Date de commande: %1 → %2")
-                .arg(oldOrderDate.toString("dd/MM/yyyy"), dateOrder.toString("dd/MM/yyyy"));
+                           .arg(oldOrderDate.toString("dd/MM/yyyy"), dateOrder.toString("dd/MM/yyyy"));
         }
         if (oldDeliveryDate != dateDel) {
             hasChanges = true;
             changes << QString("Date de livraison: %1 → %2")
-                .arg(oldDeliveryDate.toString("dd/MM/yyyy"), dateDel.toString("dd/MM/yyyy"));
+                           .arg(oldDeliveryDate.toString("dd/MM/yyyy"), dateDel.toString("dd/MM/yyyy"));
         }
         if (qAbs(oldPrice - price) > 0.01) { // Comparaison de doubles avec tolérance
             hasChanges = true;
             changes << QString("Prix: %1 DT → %2 DT")
-                .arg(QString::number(oldPrice, 'f', 2), QString::number(price, 'f', 2));
+                           .arg(QString::number(oldPrice, 'f', 2), QString::number(price, 'f', 2));
         }
-        
+
         if (hasChanges) {
             QMap<QString, QString> orderData;
             orderData["id"] = id;
@@ -1204,10 +1319,10 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         // Confirmation avant suppression
-        QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmation", 
-            QString("⚠️  Êtes-vous sûr de vouloir supprimer la commande '%1' ?\nCette action est irréversible !").arg(id),
-            QMessageBox::Yes | QMessageBox::No);
-        
+        QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmation",
+                                                                  QString("⚠️  Êtes-vous sûr de vouloir supprimer la commande '%1' ?\nCette action est irréversible !").arg(id),
+                                                                  QMessageBox::Yes | QMessageBox::No);
+
         if (reply == QMessageBox::No) {
             return;
         }
@@ -1221,7 +1336,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
 
@@ -1229,7 +1344,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString depError;
         if (!deleteOrderDependencies(db, tableName, id, &depError)) {
             QMessageBox::critical(this, "Erreur Base de données",
-                "Impossible de supprimer les enregistrements liés à cette commande.\n" + depError);
+                                  "Impossible de supprimer les enregistrements liés à cette commande.\n" + depError);
             qDebug() << "Erreur dépendances (delete):" << depError;
             return;
         }
@@ -1242,12 +1357,12 @@ MainWindow::MainWindow(QWidget *parent)
             const QString sqlErr = del.lastError().text();
             if (sqlErr.contains("ORA-02292", Qt::CaseInsensitive)) {
                 QMessageBox::critical(this, "Erreur Base de données",
-                    "Suppression impossible: cette commande est encore référencée par d'autres données.\n"
-                    "Supprimez d'abord les éléments liés, puis réessayez.\n\n"
-                    "Détail SQL: " + sqlErr);
+                                      "Suppression impossible: cette commande est encore référencée par d'autres données.\n"
+                                      "Supprimez d'abord les éléments liés, puis réessayez.\n\n"
+                                      "Détail SQL: " + sqlErr);
             } else {
                 QMessageBox::critical(this, "Erreur Base de données",
-                    "Erreur lors de la suppression:\n" + sqlErr);
+                                      "Erreur lors de la suppression:\n" + sqlErr);
             }
             qDebug() << "Erreur SQL (delete):" << sqlErr;
             return;
@@ -1291,7 +1406,7 @@ MainWindow::MainWindow(QWidget *parent)
     updateStatistics();
     checkForNotifications(); // Vérification initiale
     loadEmailHistory(); // Charger l'historique des emails
-    
+
     // Configuration SMTP Gmail pré-configurée
     smtpUsername = "rayenbenabdallah21@gmail.com";
     smtpPassword = "imghwonvblnjenfv"; // Mot de passe d'application (sans espaces)
@@ -1310,7 +1425,7 @@ void MainWindow::reloadOrdersFromDb()
         if (!warnedDbClosed) {
             warnedDbClosed = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                "Connexion BD fermée. Relancez l'application.");
+                                  "Connexion BD fermée. Relancez l'application.");
         }
         return;
     }
@@ -1321,25 +1436,41 @@ void MainWindow::reloadOrdersFromDb()
         if (!warnedNoTable) {
             warnedNoTable = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.\n"
-                "Vérifiez que vous êtes connecté au bon utilisateur/schéma.");
+                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.\n"
+                                  "Vérifiez que vous êtes connecté au bon utilisateur/schéma.");
         }
         return;
     }
 
+    const OrderColumns cols = detectOrderColumns(db, tableName);
+    if (!cols.valid) {
+        const QStringList realCols = getTableColumns(db, tableName);
+        QMessageBox::critical(this, "Erreur Base de données",
+                              QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2\n\n"
+                                      "Ajoutez vos noms de colonnes dans detectOrderColumns().")
+                                  .arg(tableName, realCols.join(", ")));
+        return;
+    }
+
+    // Construire le SELECT dynamiquement selon les colonnes disponibles
+    QStringList selCols = {cols.id, cols.type, cols.qty};
+    if (!cols.email.isEmpty())   selCols << cols.email;   else selCols << "NULL";
+    if (!cols.status.isEmpty())  selCols << cols.status;  else selCols << "NULL";
+    if (!cols.dateCmd.isEmpty()) selCols << cols.dateCmd; else selCols << "NULL";
+    if (!cols.dateLivr.isEmpty())selCols << cols.dateLivr;else selCols << "NULL";
+    if (!cols.price.isEmpty())   selCols << cols.price;   else selCols << "0";
+    if (!cols.cin.isEmpty())     selCols << cols.cin;
+
     QSqlQuery q(db);
-    q.prepare(QString(
-        "SELECT ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
-        "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE "
-        "FROM %1 ORDER BY ID_COMMANDE"
-    ).arg(tableName));
+    q.prepare(QString("SELECT %1 FROM %2 ORDER BY %3")
+                  .arg(selCols.join(", "), tableName, cols.id));
 
     if (!q.exec()) {
         qDebug() << "reloadOrdersFromDb: SELECT failed:" << q.lastError().text();
         if (!warnedSelectFailed) {
             warnedSelectFailed = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                "Erreur lors du chargement des commandes:\n" + q.lastError().text());
+                                  "Erreur lors du chargement des commandes:\n" + q.lastError().text());
         }
         return;
     }
@@ -1351,15 +1482,15 @@ void MainWindow::reloadOrdersFromDb()
     deliveryStatuses.clear();
 
     while (q.next()) {
-        QString id = q.value(0).toString();
-        QString type = q.value(1).toString();
-        int qty = q.value(2).toInt();
-        QString email = q.value(3).toString();
-        QString status = q.value(4).toString();
-        QString date = normalizeDateText(q.value(5));
-        QString dateDel = normalizeDateText(q.value(6));
-        double price = q.value(7).toDouble();
-        QString cinEmploye = q.value(8).toString();
+        QString id       = q.value(0).toString();
+        QString type     = q.value(1).toString();
+        int     qty      = q.value(2).toInt();
+        QString email    = q.value(3).toString();
+        QString status   = q.value(4).toString();
+        QString date     = normalizeDateText(q.value(5));
+        QString dateDel  = normalizeDateText(q.value(6));
+        double  price    = q.value(7).toDouble();
+        QString cinEmploye = (!cols.cin.isEmpty()) ? q.value(8).toString() : QString();
 
         // Liste (10 colonnes)
         {
@@ -1415,10 +1546,10 @@ void MainWindow::onCalendarDateChanged()
 {
     QDate selectedDate = ui->calendarWidget->selectedDate();
     qDebug() << "Calendrier: Date sélectionnée:" << selectedDate.toString("dd/MM/yyyy");
-    
+
     ui->lbl_selected_date->setText("📅 Date sélectionnée: " + selectedDate.toString("dd/MM/yyyy"));
     updateDeliveryList(selectedDate);
-    
+
     // Met à jour les statistiques du calendrier pour refléter la sélection
     updateCalendarStats();
 }
@@ -1426,17 +1557,17 @@ void MainWindow::onCalendarDateChanged()
 void MainWindow::updateDeliveryList(const QDate &date)
 {
     ui->list_deliveries->clear();
-    
+
     qDebug() << "Mise à jour liste livraisons pour:" << date.toString("dd/MM/yyyy");
     qDebug() << "Nombre total de dates avec livraisons:" << deliveryDates.size();
-    
+
     if (deliveryDates.contains(date)) {
         QStringList orderIds = deliveryDates[date];
         qDebug() << "Livraisons trouvées pour cette date:" << orderIds.size();
-        
+
         // Ajouter un en-tête avec le nombre de livraisons
         ui->list_deliveries->addItem(QString("═══ %1 livraison(s) prévue(s) ═══").arg(orderIds.size()));
-        
+
         for (const QString &orderId : orderIds) {
             bool foundInList = false;
             // Trouver les détails de la commande
@@ -1449,7 +1580,7 @@ void MainWindow::updateDeliveryList(const QDate &date)
                     QString deliveryDate = ui->table_list->item(row, 6)->text();
                     QString price = ui->table_list->item(row, 7)->text();
                     QString status = ui->table_list->item(row, 9)->text();
-                    
+
                     // Indicateur coloré basé sur le statut
                     QString statusIcon = "🔵";
                     if (status.contains("Prête", Qt::CaseInsensitive)) {
@@ -1461,18 +1592,18 @@ void MainWindow::updateDeliveryList(const QDate &date)
                     } else if (status.contains("Complétée", Qt::CaseInsensitive)) {
                         statusIcon = "🔵";
                     }
-                    
+
                     QString itemText = QString(
-                        "%1 Commande #%2\n"
-                        "   Type: %3\n"
-                        "   Client: %4\n"
-                        "   Quantité: %5\n"
-                        "   Prix: %6 DT\n"
-                        "   Statut: %7\n"
-                        "   Commandée: %8\n"
-                        "   À livrer: %9"
-                    ).arg(statusIcon, orderId, type, email, quantity, price, status, orderDate, deliveryDate);
-                    
+                                           "%1 Commande #%2\n"
+                                           "   Type: %3\n"
+                                           "   Client: %4\n"
+                                           "   Quantité: %5\n"
+                                           "   Prix: %6 DT\n"
+                                           "   Statut: %7\n"
+                                           "   Commandée: %8\n"
+                                           "   À livrer: %9"
+                                           ).arg(statusIcon, orderId, type, email, quantity, price, status, orderDate, deliveryDate);
+
                     ui->list_deliveries->addItem(itemText);
                     foundInList = true;
                     break;
@@ -1490,24 +1621,24 @@ void MainWindow::updateDeliveryList(const QDate &date)
         ui->list_deliveries->addItem("❌ Aucune livraison prévue");
         ui->list_deliveries->addItem("pour cette date.");
         ui->list_deliveries->addItem("═══════════════════════");
-        
+
         // Afficher un aperçu des prochaines livraisons
         if (!deliveryDates.isEmpty()) {
             ui->list_deliveries->addItem("");
             ui->list_deliveries->addItem("📅 Prochaines livraisons:");
-            
+
             QList<QDate> allDates = deliveryDates.keys();
             std::sort(allDates.begin(), allDates.end());
-            
+
             int count = 0;
             for (const QDate& nextDate : allDates) {
                 if (nextDate >= date && count < 5) {
                     int nbOrders = deliveryDates[nextDate].size();
                     ui->list_deliveries->addItem(
                         QString("  • %1: %2 commande(s)")
-                        .arg(nextDate.toString("dd/MM/yyyy"))
-                        .arg(nbOrders)
-                    );
+                            .arg(nextDate.toString("dd/MM/yyyy"))
+                            .arg(nbOrders)
+                        );
                     count++;
                 }
             }
@@ -1520,46 +1651,46 @@ void MainWindow::updateCalendarHighlights()
     // Réinitialiser le format du calendrier
     QTextCharFormat defaultFormat;
     defaultFormat.setForeground(Qt::black);
-    
+
     QTextCharFormat weekendFormat;
     weekendFormat.setForeground(QColor(220, 20, 60)); // Rouge écarlate
     weekendFormat.setFontWeight(QFont::Bold);
-    
+
     QTextCharFormat todayFormat;
     todayFormat.setBackground(QColor("#FFD700")); // Jaune or
     todayFormat.setForeground(Qt::black);
     todayFormat.setFontWeight(QFont::Bold);
-    
+
     // Couleurs par statut
     QTextCharFormat readyFormat;
     readyFormat.setBackground(QColor("#90EE90")); // Vert clair
     readyFormat.setForeground(Qt::darkGreen);
     readyFormat.setFontWeight(QFont::Bold);
-    
+
     QTextCharFormat inProgressFormat;
     inProgressFormat.setBackground(QColor("#FFB347")); // Orange
     inProgressFormat.setForeground(Qt::darkRed);
     inProgressFormat.setFontWeight(QFont::Bold);
-    
+
     QTextCharFormat pendingFormat;
     pendingFormat.setBackground(QColor("#FF6B6B")); // Rouge
     pendingFormat.setForeground(Qt::white);
     pendingFormat.setFontWeight(QFont::Bold);
-    
+
     QTextCharFormat completedFormat;
     completedFormat.setBackground(QColor("#87CEEB")); // Bleu ciel
     completedFormat.setForeground(Qt::darkBlue);
     completedFormat.setFontWeight(QFont::Bold);
-    
+
     QTextCharFormat deliveryFormat;
     deliveryFormat.setBackground(QColor("#D3D3D3")); // Gris clair pour statut inconnu
     deliveryFormat.setForeground(Qt::black);
     deliveryFormat.setFontWeight(QFont::Bold);
-    
+
     QDate today = QDate::currentDate();
     QDate monthStart = QDate(today.year(), today.month(), 1);
     QDate monthEnd = monthStart.addMonths(1).addDays(-1);
-    
+
     // Parcourir tout le mois et appliquer les mises en forme
     for (QDate date = monthStart; date <= monthEnd; date = date.addDays(1)) {
         if (date == today) {
@@ -1572,11 +1703,11 @@ void MainWindow::updateCalendarHighlights()
             bool hasInProgress = false;
             bool hasPending = false;
             bool hasCompleted = false;
-            
+
             QStringList orderIds = deliveryDates[date];
             for (const QString& orderId : orderIds) {
                 QString status = deliveryStatuses[date].value(orderId, "En attente");
-                
+
                 if (status.contains("Prête", Qt::CaseInsensitive)) {
                     hasReady = true;
                 } else if (status.contains("En cours", Qt::CaseInsensitive)) {
@@ -1587,7 +1718,7 @@ void MainWindow::updateCalendarHighlights()
                     hasCompleted = true;
                 }
             }
-            
+
             // Hiérarchie : Attente > En cours > Prête > Complétée
             if (hasPending) {
                 ui->calendarWidget->setDateTextFormat(date, pendingFormat);
@@ -1614,7 +1745,7 @@ void MainWindow::updateCalendarStats()
 {
     QDate today = QDate::currentDate();
     QDate weekEnd = today.addDays(7);
-    
+
     int thisWeekCount = 0;
     int thisMonthCount = 0;
     int overdueCount = 0;
@@ -1623,25 +1754,25 @@ void MainWindow::updateCalendarStats()
     int pendingCount = 0;
     int completedCount = 0;
     double totalRevenue = 0.0;
-    
+
     // Statistiques par date de livraison
     for (auto it = deliveryDates.begin(); it != deliveryDates.end(); ++it) {
         QDate deliveryDate = it.key();
         QStringList orderIds = it.value();
         int orderCount = orderIds.count();
-        
+
         if (deliveryDate < today) {
             overdueCount += orderCount;
         }
-        
+
         if (deliveryDate >= today && deliveryDate <= weekEnd) {
             thisWeekCount += orderCount;
         }
-        
+
         if (deliveryDate.year() == today.year() && deliveryDate.month() == today.month()) {
             thisMonthCount += orderCount;
         }
-        
+
         // Comptage par statut
         for (const QString& orderId : orderIds) {
             QString status = deliveryStatuses[deliveryDate].value(orderId, "En attente");
@@ -1656,13 +1787,13 @@ void MainWindow::updateCalendarStats()
             }
         }
     }
-    
+
     // Calculer le revenu total
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         QString priceStr = ui->table_list->item(row, 7) ? ui->table_list->item(row, 7)->text() : "0";
         totalRevenue += priceStr.toDouble();
     }
-    
+
     ui->lbl_this_week_value->setText(QString::number(thisWeekCount));
     ui->lbl_this_month_value->setText(QString::number(thisMonthCount));
     ui->lbl_overdue_value->setText(QString::number(overdueCount));
@@ -1673,25 +1804,25 @@ void MainWindow::onExportCalendar()
     // Créer une boîte de dialogue pour demander le format d'export
     QStringList formats;
     formats << "PDF" << "CSV";
-    
+
     bool ok;
     QString format = QInputDialog::getItem(this, "Format d'export",
-        "Choisir le format d'export:", formats, 0, false, &ok);
-    
+                                           "Choisir le format d'export:", formats, 0, false, &ok);
+
     if (!ok) return;
-    
+
     // Demander le chemin de sauvegarde
     QString fileName;
     if (format == "PDF") {
         fileName = QFileDialog::getSaveFileName(this, "Exporter en PDF",
-            "commandes.pdf", "PDF Files (*.pdf)");
+                                                "commandes.pdf", "PDF Files (*.pdf)");
     } else {
         fileName = QFileDialog::getSaveFileName(this, "Exporter en CSV",
-            "commandes.csv", "CSV Files (*.csv)");
+                                                "commandes.csv", "CSV Files (*.csv)");
     }
-    
+
     if (fileName.isEmpty()) return;
-    
+
     if (format == "PDF") {
         exportToPDF(fileName);
     } else {
@@ -1704,57 +1835,57 @@ void MainWindow::exportToPDF(const QString &fileName)
     QPdfWriter pdfWriter(fileName);
     pdfWriter.setPageSize(QPageSize::A4);
     pdfWriter.setTitle("Rapport des Commandes");
-    
+
     QPainter painter;
     if (!painter.begin(&pdfWriter)) {
         QMessageBox::critical(this, "Erreur", "Impossible de créer le fichier PDF.");
         return;
     }
-    
+
     // En-tête
     QFont headerFont("Arial", 16, QFont::Bold);
     painter.setFont(headerFont);
     painter.drawText(50, 50, "Rapport des Commandes");
     painter.drawText(50, 100, QString("Généré le %1").arg(QDate::currentDate().toString("dd/MM/yyyy")));
-    
+
     // Tableau
     QFont tableFont("Arial", 10);
     painter.setFont(tableFont);
-    
+
     int y = 150;
     int lineHeight = 20;
-    
+
     // En-têtes du tableau
     painter.drawText(50, y, "ID");
     painter.drawText(120, y, "Type");
     painter.drawText(220, y, "Qty");
     painter.drawText(280, y, "Email");
     painter.drawText(420, y, "Statut");
-    
+
     y += lineHeight;
-    
+
     // Données du tableau
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         if (y > pdfWriter.height() - 50) {
             pdfWriter.newPage();
             y = 50;
         }
-        
+
         QString id = ui->table_list->item(row, 0) ? ui->table_list->item(row, 0)->text() : "";
         QString type = ui->table_list->item(row, 1) ? ui->table_list->item(row, 1)->text() : "";
         QString qty = ui->table_list->item(row, 2) ? ui->table_list->item(row, 2)->text() : "";
         QString email = ui->table_list->item(row, 3) ? ui->table_list->item(row, 3)->text() : "";
         QString status = ui->table_list->item(row, 9) ? ui->table_list->item(row, 9)->text() : "";
-        
+
         painter.drawText(50, y, id);
         painter.drawText(120, y, type);
         painter.drawText(220, y, qty);
         painter.drawText(280, y, email.left(20));
         painter.drawText(420, y, status);
-        
+
         y += lineHeight;
     }
-    
+
     painter.end();
     QMessageBox::information(this, "Succès", "Le fichier PDF a été créé avec succès:\n" + fileName);
 }
@@ -1766,12 +1897,12 @@ void MainWindow::exportToCSV(const QString &fileName)
         QMessageBox::critical(this, "Erreur", "Impossible de créer le fichier CSV.");
         return;
     }
-    
+
     QTextStream out(&file);
-    
+
     // En-têtes
     out << "ID,Type,Quantité,Email,Date Commande,Date Livraison,Prix,Statut\n";
-    
+
     // Données
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         QString id = ui->table_list->item(row, 0) ? ui->table_list->item(row, 0)->text() : "";
@@ -1782,11 +1913,11 @@ void MainWindow::exportToCSV(const QString &fileName)
         QString dateDeliv = ui->table_list->item(row, 6) ? ui->table_list->item(row, 6)->text() : "";
         QString price = ui->table_list->item(row, 7) ? ui->table_list->item(row, 7)->text() : "";
         QString status = ui->table_list->item(row, 9) ? ui->table_list->item(row, 9)->text() : "";
-        
+
         out << QString("\"%1\",\"%2\",\"%3\",\"%4\",\"%5\",\"%6\",\"%7\",\"%8\"\n")
-            .arg(id, type, qty, email, dateOrder, dateDeliv, price, status);
+                   .arg(id, type, qty, email, dateOrder, dateDeliv, price, status);
     }
-    
+
     file.close();
     QMessageBox::information(this, "Succès", "Le fichier CSV a été créé avec succès:\n" + fileName);
 }
@@ -1798,31 +1929,31 @@ void MainWindow::updateStatistics()
     int totalOrders = ui->table_list->rowCount();
     double totalRevenue = 0.0;
     int pendingOrders = 0;
-    
+
     QMap<QString, int> typeCount;
-    
+
     for (int row = 0; row < totalOrders; ++row) {
         // Calcul du revenu total
         QString priceStr = ui->table_list->item(row, 7)->text();
         totalRevenue += priceStr.toDouble();
-        
+
         // Comptage des commandes en attente
         QString status = ui->table_list->item(row, 9)->text();
         if (status == "En attente" || status == "En cours") {
             pendingOrders++;
         }
-        
+
         // Comptage par type
         QString type = ui->table_list->item(row, 1)->text();
         typeCount[type]++;
-        
+
     }
-    
+
     // ===== MISE À JOUR DE LA PAGE STATS PRINCIPALE (SIDEBAR) =====
     ui->lbl_main_orders_value->setText(QString::number(totalOrders));
     ui->lbl_main_revenue_value->setText(QString::number(totalRevenue, 'f', 2) + " DT");
     ui->lbl_main_pending_value->setText(QString::number(pendingOrders));
-    
+
     // Trouver le produit le plus vendu
     QString topProduct = "-";
     int maxTypeCount = 0;
@@ -1833,13 +1964,13 @@ void MainWindow::updateStatistics()
         }
     }
     ui->lbl_main_top_product_value->setText(topProduct);
-    
+
     ui->lbl_main_top_city_value->setText("N/A");
-    
+
     // Prix moyen
     double avgPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0.0;
     ui->lbl_main_avg_price_value->setText(QString::number(avgPrice, 'f', 2) + " DT");
-    
+
     // Répartition par type
     QString typeStats = "📊 Répartition par type de cuir:\n\n";
     for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
@@ -1880,24 +2011,24 @@ void MainWindow::updateStatistics()
             chartView->setChart(chart);
         }
     }
-    
+
     // ===== MISE À JOUR DE L'ONGLET STATS DANS LA PAGE LISTE =====
     ui->lbl_total_orders_val->setText(QString::number(totalOrders));
     ui->lbl_top_client_val->setText("N/A");
-    
+
     // Mise à jour des statistiques détaillées de l'onglet
     QString typeStatsTab = "📊 Répartition par type:\n";
     for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
         typeStatsTab += QString("• %1: %2 commandes\n").arg(it.key()).arg(it.value());
     }
     ui->lbl_type_stats->setText(typeStatsTab.isEmpty() ? "Aucune donnée." : typeStatsTab);
-    
+
     ui->lbl_city_stats->setText("Répartition par ville: N/A");
-    
+
     QString priceStatsTab = QString("💰 Revenu total: %1 DT\n💵 Prix moyen: %2 DT\n📦 En attente: %3")
-        .arg(QString::number(totalRevenue, 'f', 2))
-        .arg(QString::number(avgPrice, 'f', 2))
-        .arg(pendingOrders);
+                                .arg(QString::number(totalRevenue, 'f', 2))
+                                .arg(QString::number(avgPrice, 'f', 2))
+                                .arg(pendingOrders);
     ui->lbl_price_stats->setText(priceStatsTab);
 }
 
@@ -1913,18 +2044,18 @@ void MainWindow::displayOrdersForUpdate()
             table_update->setHorizontalHeaderLabels({"ID", "Type", "Quantité", "Email", "Status"});
             table_update->setMaximumHeight(200);
             table_update->setMinimumHeight(150);
-            
+
             // Ajouter à la première position du layout si c'est un VBox
             QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(ui->page_update->layout());
             if (layout) {
                 layout->insertWidget(0, table_update);
             }
-            
+
             // Connexion pour charger une commande au double-clic
             connect(table_update, &QTableWidget::cellDoubleClicked, this, [=](int row, int) {
                 QString orderId = table_update->item(row, 0)->text();
                 ui->le_id_update_search->setText(orderId);
-                
+
                 // Simuler un clic sur le bouton CHARGER
                 if (ui->btn_search_update) {
                     ui->btn_search_update->click();
@@ -1932,22 +2063,22 @@ void MainWindow::displayOrdersForUpdate()
             });
         }
     }
-    
+
     // Remplir la table avec les commandes actuelles
     if (table_update) {
         table_update->setRowCount(0);
-        
+
         for (int row = 0; row < ui->table_list->rowCount(); ++row) {
             QTableWidgetItem *idItem = ui->table_list->item(row, 0);
             QTableWidgetItem *typeItem = ui->table_list->item(row, 1);
             QTableWidgetItem *qtyItem = ui->table_list->item(row, 2);
             QTableWidgetItem *emailItem = ui->table_list->item(row, 3);
             QTableWidgetItem *statusItem = ui->table_list->item(row, 9);
-            
+
             if (idItem && typeItem && qtyItem && emailItem && statusItem) {
                 int newRow = table_update->rowCount();
                 table_update->insertRow(newRow);
-                
+
                 table_update->setItem(newRow, 0, new QTableWidgetItem(idItem->text()));
                 table_update->setItem(newRow, 1, new QTableWidgetItem(typeItem->text()));
                 table_update->setItem(newRow, 2, new QTableWidgetItem(qtyItem->text()));
@@ -1955,7 +2086,7 @@ void MainWindow::displayOrdersForUpdate()
                 table_update->setItem(newRow, 4, new QTableWidgetItem(statusItem->text()));
             }
         }
-        
+
         // Ajuster la largeur des colonnes
         table_update->resizeColumnsToContents();
     }
@@ -1967,25 +2098,25 @@ void MainWindow::applyAdvancedFilters()
 {
     // Appliquer les filtres et mettre à jour le calendrier
     updateCalendarHighlights();
-    
+
     QDate selectedDate = ui->calendarWidget->selectedDate();
     updateDeliveryList(selectedDate);
-    
+
     QMessageBox::information(this, "Filtres appliqués",
-        "Les filtres avancés ont été appliqués\nau calendrier et aux listes.");
+                             "Les filtres avancés ont été appliqués\nau calendrier et aux listes.");
 }
 
 void MainWindow::clearAdvancedFilters()
 {
     // Réinitialiser tous les filtres
     updateCalendarHighlights();
-    
+
     QDate selectedDate = ui->calendarWidget->selectedDate();
     updateDeliveryList(selectedDate);
     updateStatistics();
-    
+
     QMessageBox::information(this, "Filtres réinitialisés",
-        "Tous les filtres ont été réinitialisés.");
+                             "Tous les filtres ont été réinitialisés.");
 }
 
 // --- NOTIFICATIONS ET RAPPELS ---
@@ -1995,29 +2126,29 @@ void MainWindow::checkForNotifications()
     QDate today = QDate::currentDate();
     QDate tomorrow = today.addDays(1);
     QDate nextWeek = today.addDays(7);
-    
+
     int tomorrowCount = 0;
     int nextWeekCount = 0;
     int overdueCount = 0;
     int readyCount = 0;
-    
+
     // Parcourir les dates de livraison et vérifier les notifications
     for (auto it = deliveryDates.begin(); it != deliveryDates.end(); ++it) {
         QDate deliveryDate = it.key();
         QStringList orderIds = it.value();
-        
+
         if (deliveryDate == tomorrow) {
             tomorrowCount += orderIds.count();
         }
-        
+
         if (deliveryDate > tomorrow && deliveryDate <= nextWeek) {
             nextWeekCount += orderIds.count();
         }
-        
+
         if (deliveryDate < today) {
             overdueCount += orderIds.count();
         }
-        
+
         // Compter les commandes prêtes
         for (const QString& orderId : orderIds) {
             QString status = deliveryStatuses[deliveryDate].value(orderId, "En attente");
@@ -2026,26 +2157,26 @@ void MainWindow::checkForNotifications()
             }
         }
     }
-    
+
     // Construire le message de notification
     QString notificationText;
-    
+
     if (overdueCount > 0) {
         notificationText += QString("⚠️ %1 commande(s) retardée(s)!\n\n").arg(overdueCount);
     }
-    
+
     if (tomorrowCount > 0) {
         notificationText += QString("📅 %1 livraison(s) demain!\n").arg(tomorrowCount);
     }
-    
+
     if (nextWeekCount > 0) {
         notificationText += QString("📆 %1 livraison(s) cette semaine!\n").arg(nextWeekCount);
     }
-    
+
     if (readyCount > 0) {
         notificationText += QString("\n✅ %1 commande(s) prête(s) à être livrée(s)!").arg(readyCount);
     }
-    
+
     // Afficher une notification si nécessaire
     if (!notificationText.isEmpty() && (overdueCount > 0 || tomorrowCount > 0 || readyCount > 0)) {
         QMessageBox::warning(this, "🔔 Notifications de Livraison", notificationText);
@@ -2057,160 +2188,160 @@ void MainWindow::checkForNotifications()
 QString MainWindow::getEmailTemplate(const QString &templateName, const QMap<QString, QString> &data)
 {
     QString template_html;
-    
+
     if (templateName == "confirmation") {
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #f8f5f2; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #8B4513;'>✅ Confirmation de Commande</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Votre commande <strong>#%1</strong> a été confirmée avec succès.</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #8B4513;'>"
-            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
-            "<ul>"
-            "<li><strong>Type de produit:</strong> %2</li>"
-            "<li><strong>Quantité:</strong> %3</li>"
-            "<li><strong>Prix total:</strong> %4 DT</li>"
-            "<li><strong>Date de commande:</strong> %5</li>"
-            "<li><strong>Date de livraison prévue:</strong> %6</li>"
-            "<li><strong>Statut:</strong> <span style='color: #4CAF50;'>%7</span></li>"
-            "</ul>"
-            "</div>"
-            "<p>Nous vous remercions pour votre confiance.</p>"
-            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
-            "Ceci est un email automatique, merci de ne pas y répondre."
-            "</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("qty"), 
-              data.value("price"), data.value("orderDate"), data.value("deliveryDate"), 
-              data.value("status"));
-    } 
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #f8f5f2; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #8B4513;'>✅ Confirmation de Commande</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Votre commande <strong>#%1</strong> a été confirmée avec succès.</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #8B4513;'>"
+                            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
+                            "<ul>"
+                            "<li><strong>Type de produit:</strong> %2</li>"
+                            "<li><strong>Quantité:</strong> %3</li>"
+                            "<li><strong>Prix total:</strong> %4 DT</li>"
+                            "<li><strong>Date de commande:</strong> %5</li>"
+                            "<li><strong>Date de livraison prévue:</strong> %6</li>"
+                            "<li><strong>Statut:</strong> <span style='color: #4CAF50;'>%7</span></li>"
+                            "</ul>"
+                            "</div>"
+                            "<p>Nous vous remercions pour votre confiance.</p>"
+                            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
+                            "Ceci est un email automatique, merci de ne pas y répondre."
+                            "</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
+                                 data.value("price"), data.value("orderDate"), data.value("deliveryDate"),
+                                 data.value("status"));
+    }
     else if (templateName == "livraison") {
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #e8f5e9; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #2E7D32;'>🚚 Notification de Livraison</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Votre commande <strong>#%1</strong> est prête pour la livraison!</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #4CAF50;'>"
-            "<h3 style='margin-top: 0;'>Informations de livraison:</h3>"
-            "<ul>"
-            "<li><strong>Produit:</strong> %2</li>"
-            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
-            "<li><strong>Date de livraison:</strong> %4</li>"
-            "<li><strong>Statut:</strong> <span style='color: #4CAF50; font-weight: bold;'>PRÊTE</span></li>"
-            "</ul>"
-            "</div>"
-            "<p style='background-color: #FFF9C4; padding: 10px; border-radius: 5px;'>"
-            "⏰ Veuillez vous assurer d'être disponible à la date prévue."
-            "</p>"
-            "<p>Cordialement,<br>L'équipe de gestion</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("deliveryDate"));
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #e8f5e9; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #2E7D32;'>🚚 Notification de Livraison</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Votre commande <strong>#%1</strong> est prête pour la livraison!</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #4CAF50;'>"
+                            "<h3 style='margin-top: 0;'>Informations de livraison:</h3>"
+                            "<ul>"
+                            "<li><strong>Produit:</strong> %2</li>"
+                            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
+                            "<li><strong>Date de livraison:</strong> %4</li>"
+                            "<li><strong>Statut:</strong> <span style='color: #4CAF50; font-weight: bold;'>PRÊTE</span></li>"
+                            "</ul>"
+                            "</div>"
+                            "<p style='background-color: #FFF9C4; padding: 10px; border-radius: 5px;'>"
+                            "⏰ Veuillez vous assurer d'être disponible à la date prévue."
+                            "</p>"
+                            "<p>Cordialement,<br>L'équipe de gestion</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("deliveryDate"));
     }
     else if (templateName == "retard") {
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #ffebee; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #c62828;'>⚠️ Notification de Retard</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Nous vous informons que la commande <strong>#%1</strong> a subi un retard.</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #f44336;'>"
-            "<h3 style='margin-top: 0;'>Détails:</h3>"
-            "<ul>"
-            "<li><strong>Produit:</strong> %2</li>"
-            "<li><strong>Date initialement prévue:</strong> %3</li>"
-            "<li><strong>Nouvelle date estimée:</strong> En cours de détermination</li>"
-            "</ul>"
-            "</div>"
-            "<p>Nous nous excusons pour ce désagrément et mettons tout en œuvre pour accélérer la livraison.</p>"
-            "<p>Cordialement,<br>L'équipe de gestion</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("deliveryDate"));
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #ffebee; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #c62828;'>⚠️ Notification de Retard</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Nous vous informons que la commande <strong>#%1</strong> a subi un retard.</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #f44336;'>"
+                            "<h3 style='margin-top: 0;'>Détails:</h3>"
+                            "<ul>"
+                            "<li><strong>Produit:</strong> %2</li>"
+                            "<li><strong>Date initialement prévue:</strong> %3</li>"
+                            "<li><strong>Nouvelle date estimée:</strong> En cours de détermination</li>"
+                            "</ul>"
+                            "</div>"
+                            "<p>Nous nous excusons pour ce désagrément et mettons tout en œuvre pour accélérer la livraison.</p>"
+                            "<p>Cordialement,<br>L'équipe de gestion</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("deliveryDate"));
     }
     else if (templateName == "attente") {
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #fff8e1; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #f57c00;'>⏳ Commande en Attente</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Votre commande <strong>#%1</strong> est actuellement en attente de traitement.</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #ff9800;'>"
-            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
-            "<ul>"
-            "<li><strong>Produit:</strong> %2</li>"
-            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
-            "<li><strong>Date de commande:</strong> %4</li>"
-            "<li><strong>Date de livraison prévue:</strong> %5</li>"
-            "<li><strong>Statut:</strong> <span style='color: #ff9800; font-weight: bold;'>EN ATTENTE</span></li>"
-            "</ul>"
-            "</div>"
-            "<p style='background-color: #e3f2fd; padding: 10px; border-radius: 5px;'>"
-            "ℹ️ Nous vous tiendrons informé(e) dès que votre commande sera traitée."
-            "</p>"
-            "<p>Merci pour votre patience.<br>Cordialement,<br>L'équipe de gestion</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("qty"), 
-              data.value("orderDate"), data.value("deliveryDate"));
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #fff8e1; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #f57c00;'>⏳ Commande en Attente</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Votre commande <strong>#%1</strong> est actuellement en attente de traitement.</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #ff9800;'>"
+                            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
+                            "<ul>"
+                            "<li><strong>Produit:</strong> %2</li>"
+                            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
+                            "<li><strong>Date de commande:</strong> %4</li>"
+                            "<li><strong>Date de livraison prévue:</strong> %5</li>"
+                            "<li><strong>Statut:</strong> <span style='color: #ff9800; font-weight: bold;'>EN ATTENTE</span></li>"
+                            "</ul>"
+                            "</div>"
+                            "<p style='background-color: #e3f2fd; padding: 10px; border-radius: 5px;'>"
+                            "ℹ️ Nous vous tiendrons informé(e) dès que votre commande sera traitée."
+                            "</p>"
+                            "<p>Merci pour votre patience.<br>Cordialement,<br>L'équipe de gestion</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
+                                 data.value("orderDate"), data.value("deliveryDate"));
     }
     else if (templateName == "modification") {
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #e3f2fd; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #1976D2;'>🔄 Mise à Jour de Commande</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Votre commande <strong>#%1</strong> a été modifiée.</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2196F3;'>"
-            "<h3 style='margin-top: 0;'>Détails actuels de la commande:</h3>"
-            "<ul>"
-            "<li><strong>Type de produit:</strong> %2</li>"
-            "<li><strong>Quantité:</strong> %3</li>"
-            "<li><strong>Prix total:</strong> %4 DT</li>"
-            "<li><strong>Date de commande:</strong> %5</li>"
-            "<li><strong>Date de livraison prévue:</strong> %6</li>"
-            "<li><strong>Statut:</strong> <span style='color: #1976D2;'>%7</span></li>"
-            "</ul>"
-            "</div>"
-            "%8"
-            "<p>Nous vous remercions pour votre confiance.</p>"
-            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
-            "Ceci est un email automatique, merci de ne pas y répondre."
-            "</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("qty"), 
-              data.value("price"), data.value("orderDate"), data.value("deliveryDate"), 
-              data.value("status"),
-              data.contains("changes") && !data.value("changes").isEmpty() 
-                  ? QString("<div style='background-color: #fff3e0; padding: 15px; margin: 20px 0; border-left: 4px solid #FF9800; border-radius: 5px;'>"
-                            "<h3 style='margin-top: 0; color: #E65100;'>📝 Modifications effectuées:</h3>"
-                            "<p style='font-size: 14px; line-height: 1.8;'>• %1</p>"
-                            "</div>").arg(data.value("changes"))
-                  : QString());
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #e3f2fd; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #1976D2;'>🔄 Mise à Jour de Commande</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Votre commande <strong>#%1</strong> a été modifiée.</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2196F3;'>"
+                            "<h3 style='margin-top: 0;'>Détails actuels de la commande:</h3>"
+                            "<ul>"
+                            "<li><strong>Type de produit:</strong> %2</li>"
+                            "<li><strong>Quantité:</strong> %3</li>"
+                            "<li><strong>Prix total:</strong> %4 DT</li>"
+                            "<li><strong>Date de commande:</strong> %5</li>"
+                            "<li><strong>Date de livraison prévue:</strong> %6</li>"
+                            "<li><strong>Statut:</strong> <span style='color: #1976D2;'>%7</span></li>"
+                            "</ul>"
+                            "</div>"
+                            "%8"
+                            "<p>Nous vous remercions pour votre confiance.</p>"
+                            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
+                            "Ceci est un email automatique, merci de ne pas y répondre."
+                            "</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
+                                 data.value("price"), data.value("orderDate"), data.value("deliveryDate"),
+                                 data.value("status"),
+                                 data.contains("changes") && !data.value("changes").isEmpty()
+                                     ? QString("<div style='background-color: #fff3e0; padding: 15px; margin: 20px 0; border-left: 4px solid #FF9800; border-radius: 5px;'>"
+                                               "<h3 style='margin-top: 0; color: #E65100;'>📝 Modifications effectuées:</h3>"
+                                               "<p style='font-size: 14px; line-height: 1.8;'>• %1</p>"
+                                               "</div>").arg(data.value("changes"))
+                                     : QString());
     }
     else {
         // Template par défaut
         template_html = QString(
-            "<html><body style='font-family: Arial, sans-serif;'>"
-            "<div style='background-color: #f5f5f5; padding: 20px; border-radius: 10px;'>"
-            "<h2 style='color: #8B4513;'>📧 Notification</h2>"
-            "<p>Bonjour,</p>"
-            "<p>Ceci est une notification concernant votre commande <strong>#%1</strong>.</p>"
-            "<div style='background-color: white; padding: 15px; margin: 20px 0;'>"
-            "<p><strong>Type:</strong> %2</p>"
-            "<p><strong>Quantité:</strong> %3</p>"
-            "<p><strong>Statut:</strong> %4</p>"
-            "</div>"
-            "<p>Cordialement,<br>L'équipe de gestion</p>"
-            "</div>"
-            "</body></html>"
-        ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("status"));
+                            "<html><body style='font-family: Arial, sans-serif;'>"
+                            "<div style='background-color: #f5f5f5; padding: 20px; border-radius: 10px;'>"
+                            "<h2 style='color: #8B4513;'>📧 Notification</h2>"
+                            "<p>Bonjour,</p>"
+                            "<p>Ceci est une notification concernant votre commande <strong>#%1</strong>.</p>"
+                            "<div style='background-color: white; padding: 15px; margin: 20px 0;'>"
+                            "<p><strong>Type:</strong> %2</p>"
+                            "<p><strong>Quantité:</strong> %3</p>"
+                            "<p><strong>Statut:</strong> %4</p>"
+                            "</div>"
+                            "<p>Cordialement,<br>L'équipe de gestion</p>"
+                            "</div>"
+                            "</body></html>"
+                            ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("status"));
     }
-    
+
     return template_html;
 }
 
@@ -2233,13 +2364,13 @@ void MainWindow::saveEmailHistory()
         file.close();
     }
 }
-        
+
         qDebug() << "Ligne" << row << "- Email:" << emailClient << "| Match:" << (emailClient.toLower() == email.toLower());
-        
+
         if (emailClient.toLower() == email.toLower()) {
             QString id = ui->table_list->item(row, 0)->text();
             commandesClient.append(id);
-            
+
             QMap<QString, QString> details;
             details["id"] = id;
             details["type"] = ui->table_list->item(row, 1)->text();
@@ -2249,14 +2380,14 @@ void MainWindow::saveEmailHistory()
             details["deliveryDate"] = ui->table_list->item(row, 6)->text();
             details["price"] = ui->table_list->item(row, 7)->text();
             details["status"] = ui->table_list->item(row, 9)->text();
-            
+
             detailsCommandes.append(details);
         }
     }
-    
+
     qDebug() << "Emails disponibles dans la base:" << allEmails;
     qDebug() << "Commandes trouvées:" << commandesClient.size();
-    
+
     if (commandesClient.isEmpty()) {
         QString errorMsg = QString(
             "Aucune commande trouvée pour l'email:\n%1\n\n"
@@ -2264,7 +2395,7 @@ void MainWindow::saveEmailHistory()
             "• Total de commandes: %2\n"
             "• Clients différents: %3\n\n"
         ).arg(email).arg(ui->table_list->rowCount()).arg(allEmails.size());
-        
+
         if (!allEmails.isEmpty()) {
             errorMsg += "💡 Emails disponibles:\n";
             int count = 0;
@@ -2281,27 +2412,27 @@ void MainWindow::saveEmailHistory()
             errorMsg += "⚠️ Aucune commande avec email dans la base.\n"
                        "Vérifiez que les commandes sont bien chargées.";
         }
-        
+
         QMessageBox::warning(this, "❌ Aucune commande trouvée", errorMsg);
         return;
     }
-    
+
     // Proposer le type d'email à envoyer
     QStringList emailTypes;
     emailTypes << "Confirmation de commande" << "Notification de livraison" << "Alerte de retard" << "Email personnalisé";
-    
+
     bool ok;
     QString typeEmail = QInputDialog::getItem(this, "Type d'email",
         QString("Client: %1\n%2 commande(s) trouvée(s)\n\nChoisir le type d'email:")
             .arg(email).arg(commandesClient.size()),
         emailTypes, 0, false, &ok);
-    
+
     if (!ok) return;
-    
+
     // Sélectionner la commande si plusieurs
     QString selectedOrder;
     QMap<QString, QString> orderData;
-    
+
     if (commandesClient.size() == 1) {
         selectedOrder = commandesClient.first();
         orderData = detailsCommandes.first();
@@ -2309,7 +2440,7 @@ void MainWindow::saveEmailHistory()
         selectedOrder = QInputDialog::getItem(this, "Sélectionner une commande",
             "Choisir la commande:", commandesClient, 0, false, &ok);
         if (!ok) return;
-        
+
         for (const auto &details : detailsCommandes) {
             if (details.value("id") == selectedOrder) {
                 orderData = details;
@@ -2317,15 +2448,15 @@ void MainWindow::saveEmailHistory()
             }
         }
     }
-    
+
     // Générer le contenu de l'email
     QString subject;
     QString body;
-    
+
     if (typeEmail == "Confirmation de commande") {
         subject = QString("Confirmation de votre commande #%1").arg(selectedOrder);
         body = getEmailTemplate("confirmation", orderData);
-    } 
+    }
     else if (typeEmail == "Notification de livraison") {
         subject = QString("Votre commande #%1 est prête!").arg(selectedOrder);
         body = getEmailTemplate("livraison", orderData);
@@ -2337,7 +2468,7 @@ void MainWindow::saveEmailHistory()
     else {
         subject = QInputDialog::getText(this, "Sujet de l'email", "Entrez le sujet:");
         if (subject.isEmpty()) return;
-        
+
         QInputDialog dialog(this);
         dialog.setWindowTitle("Corps de l'email");
         dialog.setLabelText("Entrez le message:");
@@ -2351,34 +2482,34 @@ void MainWindow::saveEmailHistory()
             "L'équipe de gestion"
         ).arg(orderData["id"], orderData["type"], orderData["qty"], orderData["status"]));
         dialog.setOption(QInputDialog::UseListViewForComboBoxItems);
-        
+
         if (dialog.exec() == QDialog::Accepted) {
             body = dialog.textValue();
         } else {
             return;
         }
     }
-    
+
     // Envoyer l'email
     bool sent = sendEmail(email, subject, body);
-    
+
     if (sent) {
         // Ajouter à l'historique
         addToEmailHistory(email, subject, body, typeEmail, selectedOrder);
-        
-        QMessageBox::information(this, "✅ Email envoyé", 
+
+        QMessageBox::information(this, "✅ Email envoyé",
             QString("Email envoyé avec succès à: %1\n\n"
                     "Sujet: %2\n"
                     "Commande: #%3\n"
                     "Type: %4").arg(email, subject, selectedOrder, typeEmail));
         ui->le_email_simple->clear();
-        
+
         // Log dans la console
         qDebug() << "EMAIL ENVOYÉ:";
         qDebug() << "  Destinataire:" << email;
         qDebug() << "  Sujet:" << subject;
         qDebug() << "  Commande:" << selectedOrder;
-        
+
         // Rafraîchir l'affichage de l'historique si visible
         if (table_email_history) {
             displayEmailHistory();
@@ -2397,7 +2528,7 @@ bool MainWindow::sendEmail(const QString &to, const QString &subject, const QStr
     qDebug() << "=== ENVOI AUTOMATIQUE D'EMAIL ===";
     qDebug() << "À:" << to;
     qDebug() << "Sujet:" << subject;
-    
+
     // Envoi automatique via SMTP
     return sendEmailSMTP(to, subject, body);
 }
@@ -2413,24 +2544,24 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
     qDebug() << "Email expéditeur:" << smtpUsername;
     qDebug() << "Mot de passe configuré:" << (!smtpPassword.isEmpty() ? "OUI" : "NON");
     qDebug() << "========================================";
-    
+
     // Vérifier si les identifiants SMTP sont configurés
     if (smtpUsername.isEmpty() || smtpPassword.isEmpty()) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle("⚙️ Configuration SMTP Gmail");
         msgBox.setText("Pour envoyer des emails automatiquement, vous devez configurer votre compte Gmail.\n\n"
-                      "📌 IMPORTANT:\n"
-                      "• Utilisez un 'Mot de passe d'application' Gmail\n"
-                      "• Allez sur: myaccount.google.com → Sécurité → Validation en 2 étapes → Mots de passe d'application\n"
-                      "• Créez un mot de passe pour 'Mail' et copiez-le\n\n"
-                      "Voulez-vous configurer maintenant?");
+                       "📌 IMPORTANT:\n"
+                       "• Utilisez un 'Mot de passe d'application' Gmail\n"
+                       "• Allez sur: myaccount.google.com → Sécurité → Validation en 2 étapes → Mots de passe d'application\n"
+                       "• Créez un mot de passe pour 'Mail' et copiez-le\n\n"
+                       "Voulez-vous configurer maintenant?");
         msgBox.setIcon(QMessageBox::Question);
         msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-        
+
         if (msgBox.exec() == QMessageBox::No) {
             return false;
         }
-        
+
         // Demander l'email
         bool ok;
         smtpUsername = QInputDialog::getText(this, "📧 Email Gmail",
@@ -2438,7 +2569,7 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
                                              QLineEdit::Normal, "", &ok);
         if (!ok || smtpUsername.isEmpty()) return false;
         smtpUsername = smtpUsername.trimmed();
-        
+
         // Demander le mot de passe d'application
         smtpPassword = QInputDialog::getText(this, "🔑 Mot de passe d'application",
                                              "Entrez votre mot de passe d'application Gmail:\n"
@@ -2453,10 +2584,10 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
     smtpUsername = smtpUsername.trimmed();
     smtpPassword = smtpPassword.trimmed();
     smtpPassword.remove(' ');
-    
+
     // Créer le client SMTP
     SmtpClient *smtp = new SmtpClient(this);
-    
+
     qDebug() << "========================================";
     qDebug() << "🚀 Création du client SMTP...";
     qDebug() << "Serveur:" << smtpServer;
@@ -2464,16 +2595,16 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
     qDebug() << "De:" << smtpUsername;
     qDebug() << "À:" << to;
     qDebug() << "========================================";
-    
+
     // Créer la boîte d'attente AVANT de connecter le signal
     QMessageBox *waitBox = new QMessageBox(this);
     waitBox->setWindowTitle("📤 Envoi en cours...");
     waitBox->setText(QString("Envoi de l'email à %1...\n\n"
-                            "⏳ Connexion au serveur SMTP...\n"
-                            "Veuillez patienter...").arg(to));
+                             "⏳ Connexion au serveur SMTP...\n"
+                             "Veuillez patienter...").arg(to));
     waitBox->setStandardButtons(QMessageBox::NoButton);
     waitBox->setIcon(QMessageBox::Information);
-    
+
     // Connecter le signal de résultat
     connect(smtp, &SmtpClient::emailSent, this, [this, smtp, waitBox](bool success, const QString &message) {
         qDebug() << "========================================";
@@ -2481,61 +2612,61 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
         qDebug() << "Succès:" << success;
         qDebug() << "Message:" << message;
         qDebug() << "========================================";
-        
+
         // Fermer la boîte d'attente
         if (waitBox) {
             waitBox->close();
             waitBox->deleteLater();
         }
-        
+
         // Afficher le résultat
         if (success) {
-            QMessageBox::information(this, "✅ Email envoyé!", 
-                QString("Email envoyé avec succès!\n\n"
-                       "Destinataire: %1\n\n"
-                       "Vérifiez votre boîte Gmail dans quelques instants.").arg(
-                    waitBox ? waitBox->text().split("à ").last().split("...").first() : ""));
+            QMessageBox::information(this, "✅ Email envoyé!",
+                                     QString("Email envoyé avec succès!\n\n"
+                                             "Destinataire: %1\n\n"
+                                             "Vérifiez votre boîte Gmail dans quelques instants.").arg(
+                                             waitBox ? waitBox->text().split("à ").last().split("...").first() : ""));
         } else {
-            QMessageBox::critical(this, "❌ Erreur d'envoi", 
-                QString("Impossible d'envoyer l'email.\n\n"
-                       "Erreur: %1\n\n"
-                       "Vérifiez:\n"
-                       "• Votre connexion Internet\n"
-                       "• Le mot de passe d'application Gmail\n"
-                       "• Les logs dans la console").arg(message));
+            QMessageBox::critical(this, "❌ Erreur d'envoi",
+                                  QString("Impossible d'envoyer l'email.\n\n"
+                                          "Erreur: %1\n\n"
+                                          "Vérifiez:\n"
+                                          "• Votre connexion Internet\n"
+                                          "• Le mot de passe d'application Gmail\n"
+                                          "• Les logs dans la console").arg(message));
         }
-        
+
         smtp->deleteLater();
     });
-    
+
     // Envoyer l'email
     qDebug() << "========================================";
     qDebug() << "🚀 LANCEMENT DE L'ENVOI SMTP...";
     qDebug() << "========================================";
     smtp->sendEmail(smtpUsername, to, subject, body, smtpServer, smtpPort, smtpUsername, smtpPassword);
-    
+
     // Afficher la boîte d'attente (elle sera fermée par le callback)
     waitBox->show();
-    
+
     // Timeout de sécurité - fermer après 10 secondes si pas de réponse
     QTimer::singleShot(10000, this, [waitBox, smtp]() {
         if (waitBox && waitBox->isVisible()) {
             qDebug() << "⚠️ TIMEOUT: Aucune réponse après 10 secondes";
             waitBox->close();
-            
+
             QString logPath = QDir::currentPath() + "/smtp_debug.log";
             QMessageBox::critical(nullptr, "❌ Échec d'envoi",
-                QString("La connexion SMTP a échoué.\n\n"
-                "Vérifications nécessaires:\n"
-                "• Connexion Internet active\n"
-                "• Port 587 non bloqué par le firewall\n"
-                "• Mot de passe d'application Gmail valide\n\n"
-                "Fichier de log: %1").arg(logPath));
-            
+                                  QString("La connexion SMTP a échoué.\n\n"
+                                          "Vérifications nécessaires:\n"
+                                          "• Connexion Internet active\n"
+                                          "• Port 587 non bloqué par le firewall\n"
+                                          "• Mot de passe d'application Gmail valide\n\n"
+                                          "Fichier de log: %1").arg(logPath));
+
             smtp->deleteLater();
         }
     });
-    
+
     return true;
 }
 
@@ -2550,14 +2681,14 @@ void MainWindow::addToEmailHistory(const QString &to, const QString &subject, co
     entry.body = body;
     entry.type = type;
     entry.orderID = orderID;
-    
+
     emailHistory.prepend(entry); // Ajouter au début (plus récent en premier)
-    
+
     // Limiter à 100 emails maximum
     if (emailHistory.size() > 100) {
         emailHistory.removeLast();
     }
-    
+
     saveEmailHistory();
     qDebug() << "Email ajouté à l'historique:" << to << subject;
 }
@@ -2566,29 +2697,29 @@ void MainWindow::loadEmailHistory()
 {
     QString historyFile = "emails_history.csv";
     QFile file(historyFile);
-    
+
     emailHistory.clear();
-    
+
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qDebug() << "Aucun historique d'emails trouvé, création d'un nouveau.";
         return;
     }
-    
+
     QTextStream in(&file);
     bool firstLine = true;
-    
+
     while (!in.atEnd()) {
         QString line = in.readLine();
-        
+
         // Ignorer la ligne d'en-tête
         if (firstLine) {
             firstLine = false;
             continue;
         }
-        
+
         // Parser le CSV (format: DateTime,To,Subject,Type,OrderID,Body)
         QStringList parts = line.split("|||"); // Séparateur spécial pour éviter problèmes avec virgules
-        
+
         if (parts.size() >= 6) {
             EmailHistory entry;
             entry.dateTime = QDateTime::fromString(parts[0], "yyyy-MM-dd hh:mm:ss");
@@ -2597,11 +2728,11 @@ void MainWindow::loadEmailHistory()
             entry.type = parts[3];
             entry.orderID = parts[4];
             entry.body = parts[5];
-            
+
             emailHistory.append(entry);
         }
     }
-    
+
     file.close();
     qDebug() << "Historique chargé:" << emailHistory.size() << "emails";
 }
@@ -2610,17 +2741,17 @@ void MainWindow::saveEmailHistory()
 {
     QString historyFile = "emails_history.csv";
     QFile file(historyFile);
-    
+
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qDebug() << "Impossible de sauvegarder l'historique";
         return;
     }
-    
+
     QTextStream out(&file);
-    
+
     // En-tête
     out << "DateTime|||To|||Subject|||Type|||OrderID|||Body\n";
-    
+
     // Données
     for (const EmailHistory &entry : emailHistory) {
         out << entry.dateTime.toString("yyyy-MM-dd hh:mm:ss") << "|||"
@@ -2630,7 +2761,7 @@ void MainWindow::saveEmailHistory()
             << entry.orderID << "|||"
             << entry.body << "\n";
     }
-    
+
     file.close();
     qDebug() << "Historique sauvegardé:" << emailHistory.size() << "emails";
 }
@@ -2640,11 +2771,11 @@ void MainWindow::displayEmailHistory()
     // Créer ou réinitialiser la table
     if (!table_email_history) {
         table_email_history = new QTableWidget(this);
-        
+
         // Chercher le conteneur de l'historique dans l'UI
         // (On va l'ajouter dynamiquement à la page email)
         QWidget *emailPage = ui->page_email_auto;
-        
+
         // Créer un groupe pour l'historique
         QGroupBox *historyGroup = new QGroupBox("📜 Historique des Emails", emailPage);
         historyGroup->setObjectName("email_history_group");
@@ -2667,18 +2798,18 @@ void MainWindow::displayEmailHistory()
             "   color: white; "
             "   border-radius: 5px; "
             "}"
-        );
-        
+            );
+
         QVBoxLayout *historyLayout = new QVBoxLayout(historyGroup);
-        
+
         // === BARRE DE RECHERCHE ET FILTRAGE ===
         QHBoxLayout *searchLayout = new QHBoxLayout();
-        
+
         // Champ de recherche
         QLabel *searchLabel = new QLabel("🔍 Rechercher:", historyGroup);
         searchLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #8B4513;");
         searchLayout->addWidget(searchLabel);
-        
+
         search_email_history = new QLineEdit(historyGroup);
         search_email_history->setPlaceholderText("Chercher par destinataire, sujet, commande...");
         search_email_history->setStyleSheet(
@@ -2690,15 +2821,15 @@ void MainWindow::displayEmailHistory()
             "   background-color: white; "
             "}"
             "QLineEdit:focus { border-color: #8B4513; }"
-        );
+            );
         connect(search_email_history, &QLineEdit::textChanged, this, &MainWindow::filterEmailHistory);
         searchLayout->addWidget(search_email_history, 2);
-        
+
         // Filtre par type
         QLabel *filterLabel = new QLabel("📂 Type:", historyGroup);
         filterLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #8B4513; margin-left: 15px;");
         searchLayout->addWidget(filterLabel);
-        
+
         filter_email_type = new QComboBox(historyGroup);
         filter_email_type->addItem("Tous les types");
         filter_email_type->addItem("Confirmation de commande");
@@ -2721,8 +2852,8 @@ void MainWindow::displayEmailHistory()
             "   border: none; "
             "   width: 30px; "
             "}"
-        );
-        connect(filter_email_type, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+            );
+        connect(filter_email_type, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, &MainWindow::filterEmailHistory);
         searchLayout->addWidget(filter_email_type, 1);
 
@@ -2742,18 +2873,18 @@ void MainWindow::displayEmailHistory()
             "QPushButton:hover { "
             "   background-color: #c82333; "
             "}"
-        );
+            );
         connect(btnClearHistory, &QPushButton::clicked, this, &MainWindow::clearEmailHistory);
         searchLayout->addWidget(btnClearHistory, 0, Qt::AlignRight);
-        
+
         historyLayout->addLayout(searchLayout);
-        
+
         // Séparateur
         QFrame *separator = new QFrame(historyGroup);
         separator->setFrameShape(QFrame::HLine);
         separator->setStyleSheet("background-color: #8B4513; margin: 10px 0;");
         historyLayout->addWidget(separator);
-        
+
         // Configuration de la table
         table_email_history->setColumnCount(6);
         table_email_history->setHorizontalHeaderLabels({"📅 Date", "📧 Destinataire", "📝 Sujet", "📂 Type", "🔖 Commande", "Actions"});
@@ -2770,8 +2901,8 @@ void MainWindow::displayEmailHistory()
             "QHeaderView::section { background-color: #8B4513; color: white; font-weight: bold; padding: 10px; font-size: 14px; }"
             "QTableWidget::item { padding: 8px; }"
             "QTableWidget::item:selected { background-color: #FFE4B5; }"
-        );
-        
+            );
+
         // Définir les largeurs de colonnes optimales
         table_email_history->setColumnWidth(0, 140);  // Date
         table_email_history->setColumnWidth(1, 250);  // Destinataire
@@ -2779,20 +2910,20 @@ void MainWindow::displayEmailHistory()
         table_email_history->setColumnWidth(3, 180);  // Type
         table_email_history->setColumnWidth(4, 100);  // Commande
         table_email_history->setColumnWidth(5, 120);  // Actions
-        
+
         // Permettre le redimensionnement manuel
         table_email_history->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         table_email_history->horizontalHeader()->setStretchLastSection(false);
-        
+
         // Activer le tri par clic sur les en-têtes
         table_email_history->setSortingEnabled(false); // On gère le tri manuellement
         table_email_history->horizontalHeader()->setSectionsClickable(true);
         connect(table_email_history->horizontalHeader(), &QHeaderView::sectionClicked,
                 this, &MainWindow::sortEmailHistory);
-        
+
         historyLayout->setSpacing(12);
         historyLayout->addWidget(table_email_history, 1);
-        
+
         // Ajouter le groupe à la page email
         QVBoxLayout *pageLayout = qobject_cast<QVBoxLayout*>(emailPage->layout());
         if (pageLayout) {
@@ -2800,7 +2931,7 @@ void MainWindow::displayEmailHistory()
             pageLayout->insertWidget(2, historyGroup, 1);
         }
     }
-    
+
     // Remplir la table avec l'historique (utiliser la fonction de tri)
     // Cela appliquera automatiquement le tri actuel (par défaut: date décroissante)
     sortEmailHistory(currentSortColumn);
@@ -2810,26 +2941,26 @@ void MainWindow::resendEmailFromHistory()
 {
     QPushButton *btn = qobject_cast<QPushButton*>(sender());
     if (!btn) return;
-    
+
     int index = btn->property("historyIndex").toInt();
     if (index < 0 || index >= emailHistory.size()) return;
-    
+
     const EmailHistory &entry = emailHistory[index];
-    
+
     // Demander confirmation
     QMessageBox::StandardButton reply = QMessageBox::question(this,
-        "🔄 Renvoyer l'email?",
-        QString("Êtes-vous sûr de vouloir renvoyer cet email?\n\n"
-                "📧 À: %1\n"
-                "📝 Sujet: %2\n"
-                "📅 Envoyé: %3")
-            .arg(entry.to, entry.subject, entry.dateTime.toString("dd/MM/yyyy hh:mm")),
-        QMessageBox::Yes | QMessageBox::No);
-    
+                                                              "🔄 Renvoyer l'email?",
+                                                              QString("Êtes-vous sûr de vouloir renvoyer cet email?\n\n"
+                                                                      "📧 À: %1\n"
+                                                                      "📝 Sujet: %2\n"
+                                                                      "📅 Envoyé: %3")
+                                                                  .arg(entry.to, entry.subject, entry.dateTime.toString("dd/MM/yyyy hh:mm")),
+                                                              QMessageBox::Yes | QMessageBox::No);
+
     if (reply == QMessageBox::Yes) {
         // Renvoyer l'email
         bool sent = sendEmail(entry.to, entry.subject, entry.body);
-        
+
         if (sent) {
             // Ajouter à l'historique avec marqueur de renvoi
             addToEmailHistory(entry.to, entry.subject + " [Renvoi]", entry.body, entry.type + " (Renvoi)", entry.orderID);
@@ -2841,37 +2972,37 @@ void MainWindow::resendEmailFromHistory()
 void MainWindow::clearEmailHistory()
 {
     QMessageBox::StandardButton reply = QMessageBox::warning(this,
-        "⚠️ Confirmation",
-        "Êtes-vous sûr de vouloir effacer tout l'historique des emails?\n\n"
-        "Cette action est irréversible!",
-        QMessageBox::Yes | QMessageBox::No);
-    
+                                                             "⚠️ Confirmation",
+                                                             "Êtes-vous sûr de vouloir effacer tout l'historique des emails?\n\n"
+                                                             "Cette action est irréversible!",
+                                                             QMessageBox::Yes | QMessageBox::No);
+
     if (reply == QMessageBox::Yes) {
         emailHistory.clear();
         saveEmailHistory();
         displayEmailHistory();
-        
+
         QMessageBox::information(this, "✅ Historique effacé",
-            "L'historique des emails a été complètement effacé.");
+                                 "L'historique des emails a été complètement effacé.");
     }
 }
 
 void MainWindow::filterEmailHistory()
 {
     if (!table_email_history || !search_email_history || !filter_email_type) return;
-    
+
     QString searchText = search_email_history->text().toLower();
     QString selectedType = filter_email_type->currentText();
-    
+
     // Parcourir toutes les lignes et afficher/masquer selon les critères
     for (int row = 0; row < table_email_history->rowCount(); ++row) {
         bool matchSearch = true;
         bool matchType = true;
-        
+
         // Vérifier la recherche textuelle
         if (!searchText.isEmpty()) {
             matchSearch = false;
-            
+
             // Chercher dans toutes les colonnes textuelles
             for (int col = 0; col < 5; ++col) { // Colonnes 0-4 (pas la colonne Actions)
                 QTableWidgetItem *item = table_email_history->item(row, col);
@@ -2881,7 +3012,7 @@ void MainWindow::filterEmailHistory()
                 }
             }
         }
-        
+
         // Vérifier le filtre de type
         if (selectedType != "Tous les types") {
             QTableWidgetItem *typeItem = table_email_history->item(row, 3); // Colonne Type
@@ -2891,11 +3022,11 @@ void MainWindow::filterEmailHistory()
                 matchType = rowType.contains(selectedType, Qt::CaseInsensitive);
             }
         }
-        
+
         // Afficher/masquer la ligne selon les critères
         table_email_history->setRowHidden(row, !(matchSearch && matchType));
     }
-    
+
     // Afficher le nombre de résultats
     int visibleCount = 0;
     for (int row = 0; row < table_email_history->rowCount(); ++row) {
@@ -2912,57 +3043,57 @@ void MainWindow::filterEmailHistory()
 void MainWindow::sortEmailHistory(int column)
 {
     if (!table_email_history || column == 5) return; // Pas de tri sur la colonne Actions
-    
+
     // Inverser l'ordre de tri si on clique sur la même colonne
     if (column == currentSortColumn) {
-        currentSortOrder = (currentSortOrder == Qt::AscendingOrder) 
-                          ? Qt::DescendingOrder 
-                          : Qt::AscendingOrder;
+        currentSortOrder = (currentSortOrder == Qt::AscendingOrder)
+        ? Qt::DescendingOrder
+        : Qt::AscendingOrder;
     } else {
         currentSortColumn = column;
         currentSortOrder = Qt::AscendingOrder;
     }
-    
+
     // Créer une liste temporaire avec les données et indices
     struct RowData {
         int originalIndex;
         QString sortKey;
         QDateTime dateTime;
     };
-    
+
     QList<RowData> rows;
     rows.reserve(emailHistory.size());
-    
+
     for (int i = 0; i < emailHistory.size(); ++i) {
         const EmailHistory &entry = emailHistory[i];
         RowData rowData;
         rowData.originalIndex = i;
         rowData.dateTime = entry.dateTime;
-        
+
         // Déterminer la clé de tri selon la colonne
         switch (column) {
-            case 0: // Date
-                rowData.sortKey = entry.dateTime.toString("yyyyMMddhhmmss");
-                break;
-            case 1: // Destinataire
-                rowData.sortKey = entry.to.toLower();
-                break;
-            case 2: // Sujet
-                rowData.sortKey = entry.subject.toLower();
-                break;
-            case 3: // Type
-                rowData.sortKey = entry.type.toLower();
-                break;
-            case 4: // Commande
-                rowData.sortKey = entry.orderID.toLower();
-                break;
-            default:
-                rowData.sortKey = "";
+        case 0: // Date
+            rowData.sortKey = entry.dateTime.toString("yyyyMMddhhmmss");
+            break;
+        case 1: // Destinataire
+            rowData.sortKey = entry.to.toLower();
+            break;
+        case 2: // Sujet
+            rowData.sortKey = entry.subject.toLower();
+            break;
+        case 3: // Type
+            rowData.sortKey = entry.type.toLower();
+            break;
+        case 4: // Commande
+            rowData.sortKey = entry.orderID.toLower();
+            break;
+        default:
+            rowData.sortKey = "";
         }
-        
+
         rows.append(rowData);
     }
-    
+
     // Trier les lignes
     if (currentSortOrder == Qt::AscendingOrder) {
         std::sort(rows.begin(), rows.end(), [](const RowData &a, const RowData &b) {
@@ -2973,42 +3104,42 @@ void MainWindow::sortEmailHistory(int column)
             return a.sortKey > b.sortKey;
         });
     }
-    
+
     // Réorganiser la table selon l'ordre trié
     table_email_history->setRowCount(0);
-    
+
     for (const RowData &rowData : rows) {
         int i = rowData.originalIndex;
         const EmailHistory &entry = emailHistory[i];
-        
+
         int row = table_email_history->rowCount();
         table_email_history->insertRow(row);
-        
+
         table_email_history->setItem(row, 0, new QTableWidgetItem(entry.dateTime.toString("dd/MM/yyyy hh:mm")));
         table_email_history->setItem(row, 1, new QTableWidgetItem(entry.to));
         table_email_history->setItem(row, 2, new QTableWidgetItem(entry.subject));
         table_email_history->setItem(row, 3, new QTableWidgetItem(entry.type));
         table_email_history->setItem(row, 4, new QTableWidgetItem(entry.orderID));
-        
+
         // Bouton pour renvoyer
         QPushButton *btnResend = new QPushButton("🔄 Renvoyer");
         btnResend->setStyleSheet("background-color: #28a745; color: white; padding: 5px 10px; border-radius: 3px;");
         btnResend->setProperty("historyIndex", i);
         connect(btnResend, &QPushButton::clicked, this, &MainWindow::resendEmailFromHistory);
-        
+
         table_email_history->setCellWidget(row, 5, btnResend);
     }
-    
+
     // Réappliquer les filtres après le tri
     filterEmailHistory();
-    
+
     // Afficher un indicateur de tri dans l'en-tête
     QString sortIndicator = (currentSortOrder == Qt::AscendingOrder) ? " ▲" : " ▼";
     QStringList headers = {"📅 Date", "📧 Destinataire", "📝 Sujet", "📂 Type", "🔖 Commande", "Actions"};
     headers[column] += sortIndicator;
     table_email_history->setHorizontalHeaderLabels(headers);
-    
-    qDebug() << "Tri appliqué: colonne" << column 
+
+    qDebug() << "Tri appliqué: colonne" << column
              << (currentSortOrder == Qt::AscendingOrder ? "Ascendant" : "Descendant");
 }
 
@@ -3017,11 +3148,11 @@ void MainWindow::sortEmailHistory(int column)
 void MainWindow::searchOrdersList()
 {
     QString searchText = ui->le_search->text().toLower();
-    
+
     // Parcourir toutes les lignes et afficher/masquer selon les critères
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         bool match = false;
-        
+
         if (searchText.isEmpty()) {
             match = true;
         } else {
@@ -3034,10 +3165,10 @@ void MainWindow::searchOrdersList()
                 }
             }
         }
-        
+
         ui->table_list->setRowHidden(row, !match);
     }
-    
+
     // Compter les résultats visibles
     int visibleCount = 0;
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
@@ -3045,8 +3176,8 @@ void MainWindow::searchOrdersList()
             visibleCount++;
         }
     }
-    
-    qDebug() << "Recherche liste: " << visibleCount << "/" << ui->table_list->rowCount() 
+
+    qDebug() << "Recherche liste: " << visibleCount << "/" << ui->table_list->rowCount()
              << "commandes affichées (recherche:" << searchText << ")";
 }
 
@@ -3087,33 +3218,33 @@ void MainWindow::sortOrdersList()
 void MainWindow::exportListToPDF()
 {
     QString fileName = QFileDialog::getSaveFileName(this,
-        "Exporter la liste en PDF",
-        QString("commandes_liste_%1.pdf").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")),
-        "PDF Files (*.pdf)");
-    
+                                                    "Exporter la liste en PDF",
+                                                    QString("commandes_liste_%1.pdf").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")),
+                                                    "PDF Files (*.pdf)");
+
     if (fileName.isEmpty()) return;
-    
+
     QPdfWriter pdfWriter(fileName);
     pdfWriter.setPageSize(QPageSize::A4);
     pdfWriter.setPageOrientation(QPageLayout::Landscape); // Paysage pour tableau large
     pdfWriter.setPageMargins(QMarginsF(15, 15, 15, 15));
-    
+
     QPainter painter(&pdfWriter);
-    
+
     // Titre
     QFont titleFont = painter.font();
     titleFont.setPointSize(18);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.drawText(100, 100, "📋 LISTE DES COMMANDES");
-    
+
     // Date d'export
     QFont normalFont = painter.font();
     normalFont.setPointSize(10);
     normalFont.setBold(false);
     painter.setFont(normalFont);
     painter.drawText(100, 200, QString("Date d'export: %1").arg(QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm")));
-    
+
     // Compter les commandes visibles
     int visibleRows = 0;
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
@@ -3122,71 +3253,71 @@ void MainWindow::exportListToPDF()
         }
     }
     painter.drawText(100, 300, QString("Nombre de commandes: %1").arg(visibleRows));
-    
+
     // Dessiner le tableau
     int yPos = 500;
     int xStart = 100;
     int rowHeight = 250;
-    
+
     // Colonnes réduites pour tenir sur la page (on exclut Ville et cinEmploye)
     QStringList headers = {"ID", "Type", "Qté", "Email", "Date Cmd", "Date Livr", "Prix", "Statut"};
     QList<int> columnIndices = {0, 1, 2, 3, 5, 6, 7, 9};
     QList<int> columnWidths = {400, 800, 400, 1200, 800, 800, 600, 700}; // Largeurs en unités PDF
-    
+
     // En-têtes
     QFont headerFont = painter.font();
     headerFont.setBold(true);
     headerFont.setPointSize(9);
     painter.setFont(headerFont);
-    
+
     painter.setPen(QPen(Qt::black, 2));
     painter.setBrush(QBrush(QColor(139, 69, 19))); // Marron
-    
+
     int xPos = xStart;
     for (int i = 0; i < headers.size(); ++i) {
         painter.fillRect(xPos, yPos, columnWidths[i], rowHeight, QBrush(QColor(139, 69, 19)));
         painter.setPen(Qt::white);
         painter.drawRect(xPos, yPos, columnWidths[i], rowHeight);
-        painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight), 
-                        Qt::AlignVCenter | Qt::AlignLeft, headers[i]);
+        painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight),
+                         Qt::AlignVCenter | Qt::AlignLeft, headers[i]);
         xPos += columnWidths[i];
         painter.setPen(QPen(Qt::black, 2));
     }
-    
+
     yPos += rowHeight;
-    
+
     // Données
     painter.setFont(normalFont);
     normalFont.setPointSize(8);
     painter.setFont(normalFont);
-    
+
     int rowCount = 0;
     const int maxRowsPerPage = 20;
-    
+
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         if (ui->table_list->isRowHidden(row)) continue;
-        
+
         // Nouvelle page si nécessaire
         if (rowCount > 0 && rowCount % maxRowsPerPage == 0) {
             pdfWriter.newPage();
             yPos = 100;
         }
-        
+
         xPos = xStart;
-        
+
         // Alterner les couleurs de fond
         if (rowCount % 2 == 0) {
             painter.fillRect(xStart, yPos, 5700, rowHeight, QBrush(QColor(255, 248, 220))); // Beige clair
         }
-        
+
         for (int i = 0; i < columnIndices.size(); ++i) {
             int col = columnIndices[i];
             QTableWidgetItem *item = ui->table_list->item(row, col);
             QString text = item ? item->text() : "";
-            
+
             painter.setPen(Qt::black);
             painter.drawRect(xPos, yPos, columnWidths[i], rowHeight);
-            
+
             // Coloration spéciale pour le statut
             if (col == 9 && item) {
                 QString status = text;
@@ -3195,30 +3326,30 @@ void MainWindow::exportListToPDF()
                 else if (status == "Complétée") painter.setPen(QColor(0, 0, 255)); // Bleu
                 else if (status == "En attente") painter.setPen(QColor(255, 0, 0)); // Rouge
             }
-            
+
             painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight),
-                           Qt::AlignVCenter | Qt::AlignLeft, text);
-            
+                             Qt::AlignVCenter | Qt::AlignLeft, text);
+
             xPos += columnWidths[i];
             painter.setPen(Qt::black);
         }
-        
+
         yPos += rowHeight;
         rowCount++;
     }
-    
+
     painter.end();
-    
+
     QMessageBox::information(this, "✅ Export réussi",
-        QString("La liste des commandes a été exportée en PDF:\n%1\n\n"
-                "Nombre de commandes exportées: %2").arg(fileName).arg(visibleRows));
-    
+                             QString("La liste des commandes a été exportée en PDF:\n%1\n\n"
+                                     "Nombre de commandes exportées: %2").arg(fileName).arg(visibleRows));
+
     // Proposer d'ouvrir le fichier
-    if (QMessageBox::question(this, "Ouvrir le PDF?", 
-        "Voulez-vous ouvrir le fichier PDF maintenant?") == QMessageBox::Yes) {
+    if (QMessageBox::question(this, "Ouvrir le PDF?",
+                              "Voulez-vous ouvrir le fichier PDF maintenant?") == QMessageBox::Yes) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(fileName));
     }
-    
+
     qDebug() << "Export PDF terminé:" << fileName << "(" << visibleRows << "commandes)";
 }
 
@@ -3511,6 +3642,36 @@ void MainWindow::setupEmployeeUI()
     hDel->addWidget(empDeleteId); hDel->addWidget(btnDel);
     employeeStack->addWidget(pageDel);
 
+    const int minEmployeeVisibleRows = 11;
+    auto fillEmployeePlaceholderRows = [=](int startRow = 0) {
+        const QStringList samplePosts = {"Manager", "Technicien", "RH", "Employé"};
+        const QStringList sampleStatus = {"Actif", "En congé", "Actif", "Actif"};
+        const QStringList sampleSex = {"Homme", "Femme", "Homme", "Femme"};
+        for (int row = startRow; row < minEmployeeVisibleRows; ++row) {
+            if (row >= employeesTable->rowCount()) {
+                employeesTable->insertRow(row);
+            }
+            const QStringList placeholderValues = {
+                QString("EMP%1").arg(row + 1, 3, 10, QChar('0')),
+                QString("Employé %1").arg(row + 1),
+                samplePosts.at(row % samplePosts.size()),
+                QString("Adresse %1").arg(row + 1),
+                QString("20%1%2%3%4").arg((row + 1) % 10).arg((row + 2) % 10).arg((row + 3) % 10).arg((row + 4) % 10),
+                QDate::currentDate().addDays(-(row * 12)).toString("dd/MM/yyyy"),
+                QString::number(1200 + row * 75, 'f', 0) + " DT",
+                sampleStatus.at(row % sampleStatus.size()),
+                sampleSex.at(row % sampleSex.size())
+            };
+            for (int col = 0; col < empHeaders.size(); ++col) {
+                auto *item = new QTableWidgetItem(placeholderValues.value(col));
+                item->setTextAlignment(Qt::AlignCenter);
+                item->setForeground(QColor("#b08a6a"));
+                item->setBackground(QColor("#f7efe8"));
+                employeesTable->setItem(row, col, item);
+            }
+        }
+    };
+
     // List page
     QWidget *pageList = new QWidget(employeeStack);
     auto *vList = new QVBoxLayout(pageList);
@@ -3522,9 +3683,13 @@ void MainWindow::setupEmployeeUI()
     employeesTable->setAlternatingRowColors(true);
     employeesTable->setStyleSheet(
         "QHeaderView::section{background:#3b2a20;color:white;font-weight:bold;padding:6px;border:1px solid #C68E65;}"
-        "QTableWidget{gridline-color:#C68E65;alternate-background-color:#fdf7f2;background:#fffafa;selection-background-color:#f1c8a8;}"
-    );
+        "QTableWidget{gridline-color:#C68E65;alternate-background-color:#fdf7f2;background:#ffffff;color:#1a1a1a;selection-background-color:#f1c8a8;selection-color:#1a1a1a;}"
+        "QTableWidget::item{color:#1a1a1a;background:#ffffff;padding:4px;}"
+        "QTableWidget::item:alternate{background:#fdf7f2;}"
+        "QTableWidget::item:selected{color:#1a1a1a;background:#f1c8a8;}"
+        );
     vList->addWidget(employeesTable);
+    fillEmployeePlaceholderRows();
     auto *statsLayout = new QHBoxLayout();
     empStatsTotal = new QLabel("0", pageList);
     empStatsAvgSalary = new QLabel("0", pageList);
@@ -3538,7 +3703,6 @@ void MainWindow::setupEmployeeUI()
     connect(btnTabAdd,&QPushButton::clicked,this,[=](){ setTab(0); });
     connect(btnTabEdit,&QPushButton::clicked,this,[=](){ setTab(1); });
     connect(btnTabDelete,&QPushButton::clicked,this,[=](){ setTab(2); });
-    connect(btnTabList,&QPushButton::clicked,this,[=](){ setTab(3); updateStatistics(); });
     setTab(0);
 
     // Actions
@@ -3551,67 +3715,144 @@ void MainWindow::setupEmployeeUI()
         employeesTable->setRowCount(0);
         employeeModel->removeRows(0, employeeModel->rowCount());
 
-        QSqlQuery q(db);
-        q.prepare("SELECT CIN, NOM, POSTE, ADRESSE, TELEPHONE, DATE_EMBAUCHE, SALAIRE, STATUT, SEXE FROM EMPLOYE ORDER BY CIN");
-        if (!q.exec()) {
-            qDebug() << "refreshEmpTable error:" << q.lastError();
+        const QString employeeTableName = detectEmployeeTableName(db);
+        if (employeeTableName.isEmpty()) {
+            fillEmployeePlaceholderRows();
+            QMessageBox::critical(this, "Erreur employe",
+                                  "Impossible de detecter la table des employes dans Oracle.");
             return;
         }
+
+        const EmpColumns cols = detectEmpColumns(db, employeeTableName);
+        if (!cols.valid) {
+            fillEmployeePlaceholderRows();
+            return;
+        }
+
+        QStringList selCols = {cols.id, cols.nom};
+        selCols << (cols.poste.isEmpty()        ? QString("NULL") : cols.poste);
+        selCols << (cols.adresse.isEmpty()      ? QString("NULL") : cols.adresse);
+        selCols << (cols.telephone.isEmpty()    ? QString("NULL") : cols.telephone);
+        selCols << (cols.dateEmbauche.isEmpty() ? QString("NULL") : cols.dateEmbauche);
+        selCols << (cols.salaire.isEmpty()      ? QString("0")    : cols.salaire);
+        selCols << (cols.statut.isEmpty()       ? QString("NULL") : cols.statut);
+        selCols << (cols.sexe.isEmpty()         ? QString("NULL") : cols.sexe);
+
+        QSqlQuery q(db);
+        q.prepare(QString("SELECT %1 FROM %2 ORDER BY %3")
+                      .arg(selCols.join(", "), employeeTableName, cols.id));
+        if (!q.exec()) {
+            qDebug() << "refreshEmpTable error:" << q.lastError();
+            fillEmployeePlaceholderRows();
+            return;
+        }
+        const int fieldCount = q.record().count();
+        const int maxCols = qMin(empHeaders.size(), fieldCount);
         double sum = 0.0; int total = 0;
         while (q.next()) {
             int r = employeeModel->rowCount();
             employeeModel->insertRow(r);
-            for(int c=0;c<empHeaders.size();++c){
+            for(int c=0;c<maxCols;++c){
                 employeeModel->setData(employeeModel->index(r,c), q.value(c).toString());
             }
             int row = employeesTable->rowCount(); employeesTable->insertRow(row);
-            for(int c=0;c<empHeaders.size();++c){
-                employeesTable->setItem(row,c,new QTableWidgetItem(q.value(c).toString()));
+            for(int c=0;c<maxCols;++c){
+                auto *item = new QTableWidgetItem(q.value(c).toString());
+                item->setTextAlignment(Qt::AlignCenter);
+                item->setForeground(QColor("#1a1a1a"));
+                employeesTable->setItem(row,c,item);
             }
-            sum += q.value(6).toDouble();
+            if (fieldCount > 6) {
+                sum += q.value(6).toDouble();
+            }
             ++total;
         }
+        if (total == 0) fillEmployeePlaceholderRows(0);
         if(empStatsTotal) empStatsTotal->setText(QString::number(total));
         if(empStatsAvgSalary) empStatsAvgSalary->setText(QString::number(total?sum/total:0.0,'f',2));
     };
+    connect(btnTabList,&QPushButton::clicked,this,[=](){ setTab(3); refreshEmpTable(); updateStatistics(); });
 
     connect(btnAddEmp,&QPushButton::clicked,this,[=](){
-        QString id=empIdAdd->text().trimmed(); QString name=empNameAdd->text().trimmed();
-        if(id.isEmpty()||name.isEmpty()){ QMessageBox::warning(this,"Champs requis","CIN et Nom sont obligatoires."); return; }
+        QString id   = empIdAdd->text().trimmed();
+        QString name = empNameAdd->text().trimmed();
+        QString addr = empAddrAdd->text().trimmed();
+        QString phone= empPhoneAdd->text().trimmed();
+        double salary= empSalaryAdd->value();
+        QDate hireDate = empHireDateAdd->date();
+
+        // --- Validations ---
+        // CIN obligatoire et numérique (8 chiffres)
+        if (id.isEmpty()) {
+            QMessageBox::warning(this,"Saisie invalide","Le CIN/ID est obligatoire."); empIdAdd->setFocus(); return;
+        }
+        QRegularExpression cinRx("^\\d{1,20}$");
+        if (!cinRx.match(id).hasMatch()) {
+            QMessageBox::warning(this,"Saisie invalide","Le CIN/ID doit contenir uniquement des chiffres."); empIdAdd->setFocus(); return;
+        }
+        // Nom obligatoire, lettres et espaces uniquement
+        if (name.isEmpty()) {
+            QMessageBox::warning(this,"Saisie invalide","Le Nom est obligatoire."); empNameAdd->setFocus(); return;
+        }
+        QRegularExpression nameRx("^[\\p{L} '\\-]{2,50}$");
+        if (!nameRx.match(name).hasMatch()) {
+            QMessageBox::warning(this,"Saisie invalide","Le Nom ne doit contenir que des lettres (2-50 caractères)."); empNameAdd->setFocus(); return;
+        }
+        // Téléphone : chiffres uniquement si renseigné
+        if (!phone.isEmpty()) {
+            QRegularExpression phoneRx("^[0-9+\\s\\-]{6,20}$");
+            if (!phoneRx.match(phone).hasMatch()) {
+                QMessageBox::warning(this,"Saisie invalide","Le téléphone doit contenir uniquement des chiffres (6-20 caractères)."); empPhoneAdd->setFocus(); return;
+            }
+        }
+        // Salaire non négatif
+        if (salary < 0) {
+            QMessageBox::warning(this,"Saisie invalide","Le salaire ne peut pas être négatif."); empSalaryAdd->setFocus(); return;
+        }
+        // Date d'embauche pas dans le futur
+        if (hireDate > QDate::currentDate()) {
+            QMessageBox::warning(this,"Saisie invalide","La date d'embauche ne peut pas être dans le futur."); empHireDateAdd->setFocus(); return;
+        }
+
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
         if (!db.isOpen()) { QMessageBox::critical(this,"Base de données","Connexion indisponible"); return; }
 
+        const QString tbl = detectEmployeeTableName(db);
+        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
+        const EmpColumns cols = detectEmpColumns(db, tbl);
+        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
+
         QSqlQuery qCheck(db);
-        qCheck.prepare("SELECT 1 FROM EMPLOYE WHERE CIN=:id");
+        qCheck.prepare(QString("SELECT 1 FROM %1 WHERE %2=:id").arg(tbl, cols.id));
         qCheck.bindValue(":id", id);
-        if (qCheck.exec() && qCheck.next()) {
-            QMessageBox::warning(this,"Doublon","ID existe déjà en base.");
-            return;
-        }
-        if (qCheck.lastError().isValid()) {
-            QMessageBox::critical(this,"Erreur", qCheck.lastError().text());
-            return;
-        }
+        if (qCheck.exec() && qCheck.next()) { QMessageBox::warning(this,"Doublon","Un employé avec ce CIN existe déjà."); return; }
+
+        QStringList insCols = {cols.id, cols.nom};
+        QStringList insVals = {":id", ":nom"};
+        if (!cols.poste.isEmpty())        { insCols << cols.poste;        insVals << ":poste"; }
+        if (!cols.adresse.isEmpty())      { insCols << cols.adresse;      insVals << ":adresse"; }
+        if (!cols.telephone.isEmpty())    { insCols << cols.telephone;    insVals << ":tel"; }
+        if (!cols.dateEmbauche.isEmpty()) { insCols << cols.dateEmbauche; insVals << ":date_emb"; }
+        if (!cols.salaire.isEmpty())      { insCols << cols.salaire;      insVals << ":salaire"; }
+        if (!cols.statut.isEmpty())       { insCols << cols.statut;       insVals << ":statut"; }
+        if (!cols.sexe.isEmpty())         { insCols << cols.sexe;         insVals << ":sexe"; }
 
         QSqlQuery q(db);
-        q.prepare("INSERT INTO EMPLOYE (CIN, NOM, POSTE, ADRESSE, TELEPHONE, DATE_EMBAUCHE, SALAIRE, STATUT, SEXE) "
-              "VALUES (:id,:nom,:poste,:adresse,:tel,:date_emb,:salaire,:statut,:sexe)");
+        q.prepare(QString("INSERT INTO %1 (%2) VALUES (%3)").arg(tbl, insCols.join(","), insVals.join(",")));
         q.bindValue(":id", id);
         q.bindValue(":nom", name);
-        q.bindValue(":poste", empPosteAdd->currentText());
-        q.bindValue(":adresse", empAddrAdd->text().trimmed());
-        q.bindValue(":tel", empPhoneAdd->text().trimmed());
-        q.bindValue(":date_emb", empHireDateAdd->date());
-        q.bindValue(":salaire", empSalaryAdd->value());
-        q.bindValue(":statut", QStringLiteral("Actif"));
-        q.bindValue(":sexe", empSexAdd->currentText());
-        if (!q.exec()) {
-            QMessageBox::critical(this,"Erreur insertion", q.lastError().text());
-            return;
-        }
+        if (!cols.poste.isEmpty())        q.bindValue(":poste",    empPosteAdd->currentText());
+        if (!cols.adresse.isEmpty())      q.bindValue(":adresse",  addr);
+        if (!cols.telephone.isEmpty())    q.bindValue(":tel",      phone);
+        if (!cols.dateEmbauche.isEmpty()) q.bindValue(":date_emb", hireDate);
+        if (!cols.salaire.isEmpty())      q.bindValue(":salaire",  salary);
+        if (!cols.statut.isEmpty())       q.bindValue(":statut",   QStringLiteral("Actif"));
+        if (!cols.sexe.isEmpty())         q.bindValue(":sexe",     empSexAdd->currentText());
+        if (!q.exec()) { QMessageBox::critical(this,"Erreur insertion", q.lastError().text()); return; }
         QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable();
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé ajouté.");
     });
     connect(btnResetEmp,&QPushButton::clicked,this,[=](){
         empIdAdd->clear(); empNameAdd->clear(); empAddrAdd->clear(); empEmailAdd->clear(); empPhoneAdd->clear();
@@ -3622,8 +3863,17 @@ void MainWindow::setupEmployeeUI()
         QString id=empSearchEdit->text().trimmed();
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
+        const QString tbl = detectEmployeeTableName(db);
+        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
+        const EmpColumns cols = detectEmpColumns(db, tbl);
+        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
+
+        QStringList selCols = {cols.nom};
+        if (!cols.telephone.isEmpty()) selCols << cols.telephone; else selCols << "NULL";
+        if (!cols.salaire.isEmpty())   selCols << cols.salaire;   else selCols << "0";
+
         QSqlQuery q(db);
-        q.prepare("SELECT NOM, TELEPHONE, SALAIRE FROM EMPLOYE WHERE CIN=:id");
+        q.prepare(QString("SELECT %1 FROM %2 WHERE %3=:id").arg(selCols.join(","), tbl, cols.id));
         q.bindValue(":id", id);
         if (q.exec() && q.next()) {
             empEditName->setText(q.value(0).toString());
@@ -3634,18 +3884,54 @@ void MainWindow::setupEmployeeUI()
         QMessageBox::warning(this,"Introuvable","Employé non trouvé.");
     });
     connect(btnApplyEdit,&QPushButton::clicked,this,[=](){
-        QString id=empSearchEdit->text().trimmed();
+        QString id   = empSearchEdit->text().trimmed();
+        QString name = empEditName->text().trimmed();
+        QString phone= empEditPhone->text().trimmed();
+        double salary= empEditSalary->value();
+
+        // Validations
+        if (id.isEmpty()) {
+            QMessageBox::warning(this,"Saisie invalide","Veuillez d'abord charger un employé."); return;
+        }
+        if (name.isEmpty()) {
+            QMessageBox::warning(this,"Saisie invalide","Le Nom est obligatoire."); empEditName->setFocus(); return;
+        }
+        QRegularExpression nameRx("^[\\p{L} '\\-]{2,50}$");
+        if (!nameRx.match(name).hasMatch()) {
+            QMessageBox::warning(this,"Saisie invalide","Le Nom ne doit contenir que des lettres (2-50 caractères)."); empEditName->setFocus(); return;
+        }
+        if (!phone.isEmpty()) {
+            QRegularExpression phoneRx("^[0-9+\\s\\-]{6,20}$");
+            if (!phoneRx.match(phone).hasMatch()) {
+                QMessageBox::warning(this,"Saisie invalide","Le téléphone doit contenir uniquement des chiffres."); empEditPhone->setFocus(); return;
+            }
+        }
+        if (salary < 0) {
+            QMessageBox::warning(this,"Saisie invalide","Le salaire ne peut pas être négatif."); empEditSalary->setFocus(); return;
+        }
+
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
+        const QString tbl = detectEmployeeTableName(db);
+        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
+        const EmpColumns cols = detectEmpColumns(db, tbl);
+        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
+
+        QStringList setParts;
+        setParts << cols.nom + "=:nom";
+        if (!cols.telephone.isEmpty()) setParts << cols.telephone + "=:tel";
+        if (!cols.salaire.isEmpty())   setParts << cols.salaire   + "=:sal";
+
         QSqlQuery q(db);
-        q.prepare("UPDATE EMPLOYE SET NOM=:nom, TELEPHONE=:tel, SALAIRE=:sal WHERE CIN=:id");
-        q.bindValue(":nom", empEditName->text().trimmed());
-        q.bindValue(":tel", empEditPhone->text().trimmed());
-        q.bindValue(":sal", empEditSalary->value());
+        q.prepare(QString("UPDATE %1 SET %2 WHERE %3=:id").arg(tbl, setParts.join(","), cols.id));
+        q.bindValue(":nom", name);
+        if (!cols.telephone.isEmpty()) q.bindValue(":tel", phone);
+        if (!cols.salaire.isEmpty())   q.bindValue(":sal", salary);
         q.bindValue(":id", id);
         if (!q.exec()) { QMessageBox::critical(this,"Erreur", q.lastError().text()); return; }
         QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable(); QMessageBox::information(this,"Succès","Employé mis à jour.");
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé mis à jour.");
     });
 
     connect(btnDel,&QPushButton::clicked,this,[=](){
@@ -3653,12 +3939,50 @@ void MainWindow::setupEmployeeUI()
         if (id.isEmpty()) { QMessageBox::warning(this,"ID manquant","Entrer un CIN."); return; }
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
+        const QString tbl = detectEmployeeTableName(db);
+        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
+        const EmpColumns cols = detectEmpColumns(db, tbl);
+        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
+
+        if (QMessageBox::question(this, "Confirmation",
+                QString("Supprimer l'employé '%1' ?\nSes commandes liées seront dissociées.").arg(id),
+                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+            return;
+
+        // Trouver toutes les tables/colonnes qui référencent la table employé via FK
+        // et mettre ces colonnes à NULL pour éviter ORA-02292
+        QSqlQuery fkQuery(db);
+        fkQuery.prepare(
+            "SELECT fkc.table_name, fkc.column_name "
+            "FROM user_constraints fk "
+            "JOIN user_constraints pk ON fk.r_constraint_name = pk.constraint_name "
+            "JOIN user_cons_columns fkc ON fk.constraint_name = fkc.constraint_name "
+            "WHERE fk.constraint_type = 'R' "
+            "AND pk.table_name = :tbl"
+        );
+        fkQuery.bindValue(":tbl", tbl.toUpper());
+        if (fkQuery.exec()) {
+            while (fkQuery.next()) {
+                const QString childTable  = fkQuery.value(0).toString();
+                const QString childColumn = fkQuery.value(1).toString();
+                QSqlQuery qNull(db);
+                qNull.prepare(QString("UPDATE %1 SET %2=NULL WHERE %2=:id")
+                                  .arg(childTable, childColumn));
+                qNull.bindValue(":id", id);
+                if (!qNull.exec())
+                    qDebug() << "Dissociation FK échouée:" << qNull.lastError().text();
+            }
+        }
+        // COMMIT intermédiaire pour valider les NULLs avant le DELETE
+        QSqlQuery commitNull(db); commitNull.exec("COMMIT");
+
         QSqlQuery q(db);
-        q.prepare("DELETE FROM EMPLOYE WHERE CIN=:id");
+        q.prepare(QString("DELETE FROM %1 WHERE %2=:id").arg(tbl, cols.id));
         q.bindValue(":id", id);
         if (!q.exec()) { QMessageBox::critical(this,"Erreur", q.lastError().text()); return; }
         QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable(); QMessageBox::information(this,"Succès","Employé supprimé.");
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé supprimé.");
     });
 
     refreshEmpTable();
@@ -3904,7 +4228,7 @@ void MainWindow::sendAiMessage(const QString &userText)
 
     appendAiMessage("Vous", trimmed);
 
-    
+
     // Mode connecté à la base : réponses variées et naturelles
     QString question = trimmed.toLower();
     QSqlDatabase db = Connection::instance()->database();
@@ -4000,7 +4324,7 @@ void MainWindow::sendAiMessage(const QString &userText)
             double moyRendement = q.value(2).toDouble();
             double moyPerte = q.value(3).toDouble();
             appendAiMessage("Assistant", QString("Il y a <b>%1</b> matières différentes pour un total de <b>%2</b> unités en stock. Rendement moyen : <b>%3%</b>, Perte moyenne : <b>%4%</b>.")
-                .arg(totalMat).arg(totalStock).arg(QString::number(moyRendement, 'f', 1)).arg(QString::number(moyPerte, 'f', 1)));
+                                             .arg(totalMat).arg(totalStock).arg(QString::number(moyRendement, 'f', 1)).arg(QString::number(moyPerte, 'f', 1)));
             return;
         }
     }

@@ -10,6 +10,7 @@ CONFIG += c++17
 
 SOURCES += \
     connexion.cpp \
+    logindialog.cpp \
     main.cpp \
     mainwindow.cpp \
     smtp.cpp \
@@ -17,6 +18,7 @@ SOURCES += \
 
 HEADERS += \
     connection.h \
+    logindialog.h \
     mainwindow.h \
     smtp.h \
     materialswindow.h

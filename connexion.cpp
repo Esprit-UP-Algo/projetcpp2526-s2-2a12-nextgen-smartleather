@@ -1,7 +1,3 @@
-
-
-
-
 #include "connection.h"
 #include <QSqlError>
 #include <QDebug>
@@ -9,14 +5,25 @@
 // Initialisation du pointeur d'instance
 Connection* Connection::p_instance = nullptr;
 
-// Constructeur privé
-Connection::Connection()
+namespace {
+const char* kConnectionName = "smartleather_connection";
+
+QSqlDatabase ensureDatabaseHandle()
 {
-    // Initialisation de la base de données
-    db = QSqlDatabase::addDatabase("QODBC");
+    if (QSqlDatabase::contains(QLatin1String(kConnectionName))) {
+        return QSqlDatabase::database(QLatin1String(kConnectionName));
+    }
+    return QSqlDatabase::addDatabase("QODBC", QLatin1String(kConnectionName));
+}
 }
 
-// Méthode statique pour obtenir l'instance unique
+// Constructeur prive
+Connection::Connection()
+    : db(ensureDatabaseHandle())
+{
+}
+
+// Methode statique pour obtenir l'instance unique
 Connection* Connection::instance()
 {
     if (p_instance == nullptr) {
@@ -25,23 +32,26 @@ Connection* Connection::instance()
     return p_instance;
 }
 
-// Méthode pour établir la connexion
+// Methode pour etablir la connexion
 bool Connection::createConnect()
 {
-    bool test = false;
+    db = ensureDatabaseHandle();
 
-    db.setDatabaseName("projet-2a");//inserer le nom de la source de données
-    db.setUserName("rayen");//inserer nom de l'utilisateur
-    db.setPassword("rayen123");//inserer mot de passe de cet utilisateur
-
-    if (db.open()) {
-        test = true;
-        qDebug() << "Connexion à la base de données réussie";
-    } else {
-        qDebug() << "Erreur de connexion:" << db.lastError().text();
+    if (db.isOpen()) {
+        return true;
     }
 
-    return test;
+    db.setDatabaseName("smartleather");
+    db.setUserName("smartleather");
+    db.setPassword("smartleather123");
+
+    if (db.open()) {
+        qDebug() << "Connexion reussie a Oracle via QODBC";
+        return true;
+    }
+
+    qDebug() << "Erreur connexion :" << db.lastError().text();
+    return false;
 }
 
 // Fermer la connexion
@@ -52,13 +62,8 @@ void Connection::closeConnection()
     }
 }
 
-// Destructeur privé
+// Destructeur
 Connection::~Connection()
 {
     closeConnection();
 }
-
-
-
-
-
