@@ -1,4 +1,4 @@
-QT       += core gui printsupport sql charts network
+QT       += core gui printsupport sql charts network serialport
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -13,13 +13,17 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     smtp.cpp \
-    materialswindow.cpp
+    materialswindow.cpp \
+    arduinosensor.cpp
 
 HEADERS += \
     connection.h \
     mainwindow.h \
     smtp.h \
-    materialswindow.h
+    materialswindow.h \
+    animationutils.h \
+    buttonanimation.h \
+    arduinosensor.h
 
 FORMS += \
     mainwindow.ui \

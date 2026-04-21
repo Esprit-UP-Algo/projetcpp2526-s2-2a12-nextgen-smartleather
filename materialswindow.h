@@ -19,12 +19,16 @@ public:
 
     // Mode intégré : cache la sidebar/top nav et étire le contenu
     void setEmbeddedMode(bool embedded);
+    void refreshFromDb();
 
 private:
     Ui::MaterialsWindow *ui;
     bool embeddedMode = false;
+    QString lastStockAlertSignature;
     void adjustEmbeddedLayout();
     void refreshStats();
+    void checkLowStockAlerts(bool forceShow = false);
+    void showWasteAssistant();
     void loadFromDatabase();           // filled when DB connection established
 
 protected:

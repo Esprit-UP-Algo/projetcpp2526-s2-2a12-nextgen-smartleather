@@ -173,7 +173,7 @@
        <item>
         <widget class="QPushButton" name="btn_nav_ai">
          <property name="text">
-          <string>ASSISTANT IA</string>
+            <string>CHAT BOT</string>
          </property>
         </widget>
        </item>
@@ -2066,7 +2066,7 @@ QListWidget::item:selected { background-color: #C68E65; color: white; }</string>
              <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
             </property>
             <property name="text">
-             <string>ASSISTANT IA</string>
+               <string>CHAT BOT</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignmentFlag::AlignCenter</set>

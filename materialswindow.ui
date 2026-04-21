@@ -121,7 +121,7 @@
      <item>
       <widget class="QPushButton" name="btn_nav_ai">
        <property name="text">
-        <string>ASSISTANT IA</string>
+          <string>CHAT BOT</string>
        </property>
       </widget>
      </item>
@@ -212,7 +212,7 @@
      </rect>
     </property>
     <property name="currentIndex">
-     <number>1</number>
+     <number>3</number>
     </property>
     <widget class="QWidget" name="page_add">
      <layout class="QVBoxLayout" name="verticalLayout_add">
