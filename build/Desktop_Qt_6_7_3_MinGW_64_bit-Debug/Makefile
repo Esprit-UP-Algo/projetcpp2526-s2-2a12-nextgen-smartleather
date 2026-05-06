@@ -381,7 +381,7 @@ Makefile: ../../rayenproject1.pro C:/Qt/6.7.3/mingw_64/mkspecs/win32-g++/qmake.c
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/qt_config.prf \
 		C:/Qt/6.7.3/mingw_64/mkspecs/win32-g++/qmake.conf \
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/spec_post.prf \
-		../../.qmake.stash \
+		.qmake.stash \
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/exclusive_builds.prf \
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/toolchain.prf \
 		C:/Qt/6.7.3/mingw_64/mkspecs/features/default_pre.prf \
@@ -410,8 +410,10 @@ Makefile: ../../rayenproject1.pro C:/Qt/6.7.3/mingw_64/mkspecs/win32-g++/qmake.c
 		C:/Qt/6.7.3/mingw_64/lib/Qt6PrintSupport.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Charts.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6OpenGLWidgets.prl \
+		C:/Qt/6.7.3/mingw_64/lib/Qt6MultimediaWidgets.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Widgets.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6OpenGL.prl \
+		C:/Qt/6.7.3/mingw_64/lib/Qt6Multimedia.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Gui.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Sql.prl \
 		C:/Qt/6.7.3/mingw_64/lib/Qt6Network.prl \
@@ -731,7 +733,7 @@ C:/Qt/6.7.3/mingw_64/mkspecs/features/qt_functions.prf:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/qt_config.prf:
 C:/Qt/6.7.3/mingw_64/mkspecs/win32-g++/qmake.conf:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/spec_post.prf:
-../../.qmake.stash:
+.qmake.stash:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/exclusive_builds.prf:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/toolchain.prf:
 C:/Qt/6.7.3/mingw_64/mkspecs/features/default_pre.prf:
@@ -760,8 +762,10 @@ C:/Qt/6.7.3/mingw_64/mkspecs/features/lex.prf:
 C:/Qt/6.7.3/mingw_64/lib/Qt6PrintSupport.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Charts.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6OpenGLWidgets.prl:
+C:/Qt/6.7.3/mingw_64/lib/Qt6MultimediaWidgets.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Widgets.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6OpenGL.prl:
+C:/Qt/6.7.3/mingw_64/lib/Qt6Multimedia.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Gui.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Sql.prl:
 C:/Qt/6.7.3/mingw_64/lib/Qt6Network.prl:
@@ -779,6 +783,7 @@ all: debug-all release-all  FORCE
 clean: debug-clean release-clean  FORCE
 distclean: debug-distclean release-distclean  FORCE
 	-$(DEL_FILE) Makefile
+	-$(DEL_FILE) .qmake.stash
 
 debug-mocclean:
 	$(MAKE) -f $(MAKEFILE).Debug mocclean

@@ -30,9 +30,9 @@ bool Connection::createConnect()
 {
     bool test = false;
 
-    db.setDatabaseName("projet-2a");//inserer le nom de la source de données
-    db.setUserName("rayen");//inserer nom de l'utilisateur
-    db.setPassword("rayen123");//inserer mot de passe de cet utilisateur
+    db.setDatabaseName("smartleather");//inserer le nom de la source de données
+    db.setUserName("smartleather");//inserer nom de l'utilisateur
+    db.setPassword("smartleather123");//inserer mot de passe de cet utilisateur
 
     if (db.open()) {
         test = true;

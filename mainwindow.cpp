@@ -2,6 +2,16 @@
 #include "ui_mainwindow.h"
 #include "connection.h"
 #include "materialswindow.h"
+#include <QFormLayout>
+#include <QStandardItemModel>
+#include <QPdfWriter>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QRegularExpression>
+#include <QFileDialog>
+#include <QPainterPath>
+#include <QInputDialog>
+#include <QSqlRecord>
 #include <QMessageBox>
 #include <QClipboard>
 #include <QPrinter>
@@ -193,10 +203,11 @@ QDate parseDateLoose(const QString &s)
 
 }
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(const QString &loggedEmail, QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
+    m_loggedEmail = loggedEmail;
     ui->setupUi(this);
 
     // Intégrer l'UI matières premières dans la page dédiée du stackedWidget
@@ -479,6 +490,9 @@ MainWindow::MainWindow(QWidget *parent)
         ui->stackedWidget->setCurrentWidget(ui->page_employees);
         ui->top_nav->setVisible(false);
     });
+
+    // Initialiser l'UI employés
+    QTimer::singleShot(0, this, [this]() { setupEmployeeUI(); });
 
     // 4. FOURNISSEURS
     connect(ui->btn_nav_suppliers, &QPushButton::clicked, this, [=]() {
@@ -3138,3 +3152,532 @@ void MainWindow::exportListToPDF()
     
     qDebug() << "Export PDF terminé:" << fileName << "(" << visibleRows << "commandes)";
 }
+// ═══════════════════════════════════════════════════════════════
+// EMPLOYEE MODULE - from integ3
+// ═══════════════════════════════════════════════════════════════
+#include <QSqlRecord>
+#include <QSqlError>
+
+static QMap<QString, QStringList> s_colCache;
+
+static QStringList getTableColumns(QSqlDatabase &db, const QString &tableName)
+{
+    const QString key = tableName.toUpper();
+    if (s_colCache.contains(key)) return s_colCache.value(key);
+    QStringList cols;
+    QSqlRecord record = db.record(tableName);
+    if (record.count() > 0) {
+        for (int i = 0; i < record.count(); ++i) cols << record.fieldName(i).toUpper();
+    }
+    if (cols.isEmpty()) {
+        QSqlQuery q(db);
+        if (q.exec(QString("SELECT * FROM %1 WHERE 1=0").arg(tableName))) {
+            record = q.record();
+            for (int i = 0; i < record.count(); ++i) cols << record.fieldName(i).toUpper();
+        }
+    }
+    if (cols.isEmpty()) {
+        QSqlQuery q(db);
+        q.prepare("SELECT column_name FROM user_tab_columns WHERE table_name = :t");
+        q.bindValue(":t", key);
+        if (q.exec()) while (q.next()) cols << q.value(0).toString().toUpper();
+    }
+    s_colCache.insert(key, cols);
+    return cols;
+}
+
+static QString findFirstExistingColumn(const QStringList &available, const QStringList &candidates)
+{
+    for (const QString &c : candidates)
+        for (const QString &a : available)
+            if (a.toUpper() == c.toUpper() || a.toUpper().contains(c.toUpper())) return a.toUpper();
+    return {};
+}
+
+static QString selectExpr(const QString &col, const QString &alias, const QString &fallback = "NULL")
+{
+    return col.isEmpty() ? fallback + " AS " + alias : col + " AS " + alias;
+}
+
+struct EmpColumns {
+    QString id="CIN_EMPLOYE", nom="NOM", poste="POSTE", adresse="ADRESSE";
+    QString telephone="TELEPHONE", dateEmbauche="DATE_EMBAUCHE";
+    QString salaire="SALAIRE", statut="STATUT", sexe="SEXE";
+    bool valid = true;
+};
+
+static EmpColumns detectEmpColumns(QSqlDatabase &db, const QString &tableName)
+{
+    static QMap<QString, EmpColumns> cache;
+    const QString key = tableName.toUpper();
+    if (cache.contains(key)) return cache.value(key);
+    EmpColumns ec;
+    const QStringList cols = getTableColumns(db, key);
+    if (!cols.isEmpty()) {
+        ec.id           = findFirstExistingColumn(cols, {"CIN_EMPLOYE","CIN","ID_EMPLOYE","ID","EMPLOYEE_ID","EMP_ID"});
+        ec.nom          = findFirstExistingColumn(cols, {"NOM","NOM_EMPLOYE","NAME","EMPLOYEE_NAME","FULL_NAME"});
+        ec.poste        = findFirstExistingColumn(cols, {"POSTE","ROLE","POSITION","JOB","JOB_TITLE"});
+        ec.adresse      = findFirstExistingColumn(cols, {"ADRESSE","ADDRESS","ADDR"});
+        ec.telephone    = findFirstExistingColumn(cols, {"TELEPHONE","TEL","PHONE","PHONE_NUMBER","MOBILE"});
+        ec.dateEmbauche = findFirstExistingColumn(cols, {"DATE_EMBAUCHE","HIRE_DATE","DATE_HIRED","START_DATE"});
+        ec.salaire      = findFirstExistingColumn(cols, {"SALAIRE","SALARY","WAGE","PAY"});
+        ec.statut       = findFirstExistingColumn(cols, {"STATUT","STATUS","EMP_STATUS","STATE"});
+        ec.sexe         = findFirstExistingColumn(cols, {"SEXE","GENDER","SEX"});
+        ec.valid        = !ec.id.isEmpty() && !ec.nom.isEmpty();
+    }
+    cache.insert(key, ec);
+    return ec;
+}
+
+static QString detectEmployeeTableName(QSqlDatabase &db)
+{
+    static QString cached;
+    if (!cached.isEmpty()) return cached;
+    const QStringList tables = db.tables(QSql::Tables);
+    for (const QString &candidate : {"EMPLOYE","EMPLOYES","EMPLOYEE","EMPLOYEES"})
+        for (const QString &t : tables)
+            if (t.compare(candidate, Qt::CaseInsensitive) == 0) { cached = t.toUpper(); return cached; }
+    for (const QString &candidate : {"EMPLOYE","EMPLOYES","EMPLOYEE","EMPLOYEES"}) {
+        QSqlQuery q(db);
+        if (q.exec(QString("SELECT COUNT(*) FROM %1").arg(candidate))) { cached = candidate; return cached; }
+    }
+    return {};
+}
+
+void MainWindow::applyBarStyle(const QList<QPushButton*> &buttons, bool checkable)
+{
+    const QString style =
+        "QPushButton{background:#3D362D;color:#F2D2B5;border:none;padding:8px 16px;"
+        "font-weight:bold;font-size:12px;border-radius:0;}"
+        "QPushButton:hover{background:#4E2C23;color:#C68E65;}"
+        "QPushButton:checked{background:#C68E65;color:white;}";
+    for (auto *b : buttons) {
+        if (!b) continue;
+        if (checkable) b->setCheckable(true);
+        b->setStyleSheet(style);
+    }
+}
+
+void MainWindow::setupEmployeeUI()
+{
+    if (!ui->verticalLayout_employees) return;
+
+    // Masquer le label titre
+    if (ui->label_employees) ui->label_employees->hide();
+
+    // Nettoyer le layout existant
+    QLayoutItem *child;
+    while ((child = ui->verticalLayout_employees->takeAt(0)) != nullptr) {
+        if (child->widget()) child->widget()->deleteLater();
+        delete child;
+    }
+    ui->verticalLayout_employees->setContentsMargins(0, 0, 0, 0);
+    ui->verticalLayout_employees->setSpacing(0);
+
+    // Modèle
+    const QStringList empHeaders = {"CIN/ID","Nom","Poste","Adresse","Téléphone","Date Embauche","Salaire","Statut","Sexe"};
+    employeeModel = new QStandardItemModel(0, empHeaders.size(), this);
+    employeeModel->setHorizontalHeaderLabels(empHeaders);
+
+    // Onglets
+    auto *tabLayout = new QHBoxLayout();
+    tabLayout->setContentsMargins(0, 0, 0, 0);
+    QPushButton *btnTabAdd    = new QPushButton("Ajouter",       nullptr);
+    QPushButton *btnTabEdit   = new QPushButton("Modifier",      nullptr);
+    QPushButton *btnTabDelete = new QPushButton("Supprimer",     nullptr);
+    QPushButton *btnTabList   = new QPushButton("Liste / Stats", nullptr);
+    employeeTabButtons.clear();
+    employeeTabButtons << btnTabAdd << btnTabEdit << btnTabDelete << btnTabList;
+    applyBarStyle(employeeTabButtons, true);
+    for (QPushButton *b : std::as_const(employeeTabButtons)) tabLayout->addWidget(b);
+    ui->verticalLayout_employees->addLayout(tabLayout);
+
+    employeeStack = new QStackedWidget();
+    ui->verticalLayout_employees->addWidget(employeeStack, 1);
+
+    auto makeLine = [&](const QString &ph, QWidget *p) {
+        auto *le = new QLineEdit(p);
+        le->setPlaceholderText(ph);
+        return le;
+    };
+
+    // ── Page Ajouter ──
+    QWidget *pageAdd = new QWidget();
+    auto *scrollAdd = new QScrollArea();
+    scrollAdd->setWidget(pageAdd);
+    scrollAdd->setWidgetResizable(true);
+    scrollAdd->setFrameShape(QFrame::NoFrame);
+    scrollAdd->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    auto *formAdd = new QFormLayout(pageAdd);
+    formAdd->setContentsMargins(16, 16, 16, 16);
+    formAdd->setSpacing(10);
+    empIdAdd       = makeLine("CIN/ID", pageAdd);
+    empNameAdd     = makeLine("Nom", pageAdd);
+    empAddrAdd     = makeLine("Adresse", pageAdd);
+    empEmailAdd    = makeLine("Email", pageAdd);
+    empPhoneAdd    = makeLine("Téléphone", pageAdd);
+    empHireDateAdd = new QDateEdit(QDate::currentDate(), pageAdd);
+    empHireDateAdd->setCalendarPopup(true);
+    empPosteAdd    = new QComboBox(pageAdd);
+    empPosteAdd->addItems({"Employé","Manager","Technicien","RH"});
+    empSalaryAdd   = new QDoubleSpinBox(pageAdd);
+    empSalaryAdd->setRange(0, 1000000); empSalaryAdd->setDecimals(2);
+    empSexAdd      = new QComboBox(pageAdd);
+    empSexAdd->addItems({"Homme","Femme"});
+    formAdd->addRow("CIN/ID *",       empIdAdd);
+    formAdd->addRow("Nom *",          empNameAdd);
+    formAdd->addRow("Adresse",        empAddrAdd);
+    formAdd->addRow("Email",          empEmailAdd);
+    formAdd->addRow("Téléphone",      empPhoneAdd);
+    formAdd->addRow("Date embauche",  empHireDateAdd);
+    formAdd->addRow("Poste",          empPosteAdd);
+    formAdd->addRow("Salaire",        empSalaryAdd);
+    formAdd->addRow("Sexe",           empSexAdd);
+    auto *btnAddEmp   = new QPushButton("Enregistrer");
+    auto *btnResetEmp = new QPushButton("Réinitialiser");
+    auto *hAdd = new QHBoxLayout();
+    hAdd->addWidget(btnAddEmp); hAdd->addWidget(btnResetEmp);
+    formAdd->addRow(hAdd);
+    employeeStack->addWidget(scrollAdd);
+
+    // ── Page Modifier ──
+    QWidget *pageEdit = new QWidget();
+    auto *vEdit = new QVBoxLayout(pageEdit);
+    vEdit->setContentsMargins(16, 16, 16, 16);
+    auto *hSearch = new QHBoxLayout();
+    empSearchEdit = makeLine("CIN à modifier", pageEdit);
+    QPushButton *btnSearchEdit = new QPushButton("Charger");
+    hSearch->addWidget(empSearchEdit); hSearch->addWidget(btnSearchEdit);
+    vEdit->addLayout(hSearch);
+    auto *formEdit = new QFormLayout();
+    empEditName   = makeLine("Nom", pageEdit);
+    empEditPhone  = makeLine("Téléphone", pageEdit);
+    empEditSalary = new QDoubleSpinBox(pageEdit);
+    empEditSalary->setRange(0, 1000000); empEditSalary->setDecimals(2);
+    formEdit->addRow("Nom",       empEditName);
+    formEdit->addRow("Téléphone", empEditPhone);
+    formEdit->addRow("Salaire",   empEditSalary);
+    QPushButton *btnApplyEdit = new QPushButton("Mettre à jour");
+    formEdit->addRow(btnApplyEdit);
+    vEdit->addLayout(formEdit);
+    vEdit->addStretch();
+    employeeStack->addWidget(pageEdit);
+
+    // ── Page Supprimer ──
+    QWidget *pageDel = new QWidget();
+    auto *vDel = new QVBoxLayout(pageDel);
+    vDel->setContentsMargins(16, 16, 16, 16);
+    auto *hDel = new QHBoxLayout();
+    empDeleteId = makeLine("CIN à supprimer", pageDel);
+    QPushButton *btnDel = new QPushButton("Supprimer");
+    hDel->addWidget(empDeleteId); hDel->addWidget(btnDel);
+    vDel->addLayout(hDel);
+    vDel->addStretch();
+    employeeStack->addWidget(pageDel);
+
+    // ── Page Liste / Stats ──
+    QWidget *pageList = new QWidget();
+    auto *vList = new QVBoxLayout(pageList);
+    vList->setContentsMargins(8, 8, 8, 8);
+    vList->setSpacing(8);
+
+    auto *searchSortBar = new QHBoxLayout();
+    auto *empSearchBar = new QLineEdit(pageList);
+    empSearchBar->setPlaceholderText("Rechercher par nom, CIN, poste...");
+    empSearchBar->setFixedHeight(36);
+    auto *empSortCombo = new QComboBox(pageList);
+    empSortCombo->setFixedHeight(36);
+    empSortCombo->addItems({"Trier par...", "Nom ↑", "Nom ↓", "Salaire ↑", "Salaire ↓", "Poste ↑"});
+    auto *btnEmpPdf = new QPushButton("Export PDF", pageList);
+    btnEmpPdf->setFixedHeight(36);
+    searchSortBar->addWidget(empSearchBar, 1);
+    searchSortBar->addWidget(empSortCombo);
+    searchSortBar->addWidget(btnEmpPdf);
+    vList->addLayout(searchSortBar);
+
+    employeesTable = new QTableWidget(0, empHeaders.size(), pageList);
+    employeesTable->setHorizontalHeaderLabels(empHeaders);
+    employeesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    employeesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    employeesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    employeesTable->setAlternatingRowColors(true);
+    vList->addWidget(employeesTable);
+
+    // Cartes stats
+    auto makeStatCard = [&](const QString &title, QLabel *&valLabel, const QString &color) -> QFrame* {
+        auto *card = new QFrame(pageList);
+        card->setStyleSheet(QString("QFrame{background:%1;border-radius:10px;padding:4px;}QLabel{border:none;background:transparent;}").arg(color));
+        card->setMinimumHeight(70);
+        auto *lay = new QVBoxLayout(card);
+        lay->setContentsMargins(12,8,12,8); lay->setSpacing(2);
+        auto *top = new QLabel(title, card);
+        top->setStyleSheet("font-size:11px;color:#fff;font-weight:600;");
+        valLabel = new QLabel("—", card);
+        valLabel->setStyleSheet("font-size:20px;font-weight:bold;color:#fff;");
+        lay->addWidget(top); lay->addWidget(valLabel);
+        return card;
+    };
+    auto *statsRow = new QHBoxLayout();
+    statsRow->setSpacing(8);
+    statsRow->addWidget(makeStatCard("Total employés",  empStatsTotal,    "#5D4037"));
+    statsRow->addWidget(makeStatCard("Hommes",          empStatsHommes,   "#6D4C41"));
+    statsRow->addWidget(makeStatCard("Femmes",          empStatsFemmes,   "#8D6E63"));
+    statsRow->addWidget(makeStatCard("Salaire moyen",   empStatsAvgSalary,"#4E342E"));
+    statsRow->addWidget(makeStatCard("Salaire min",     empStatsSalMin,   "#795548"));
+    statsRow->addWidget(makeStatCard("Salaire max",     empStatsSalMax,   "#3E2723"));
+    vList->addLayout(statsRow);
+
+    empStatsPoste = new QLabel("Répartition par poste : —", pageList);
+    empStatsPoste->setStyleSheet("background:#fff8f4;border:1px solid #C68E65;border-radius:8px;padding:8px 14px;color:#3b2a20;font-size:12px;");
+    empStatsPoste->setWordWrap(true);
+    vList->addWidget(empStatsPoste);
+    employeeStack->addWidget(pageList);
+
+    // ── Refresh table ──
+    auto refreshEmpTable = [this]() {
+        QSqlDatabase db = Connection::instance()->getDatabase();
+        if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->getDatabase(); }
+        if (!employeesTable) return;
+        employeesTable->setRowCount(0);
+        const QString tbl = detectEmployeeTableName(db);
+        if (tbl.isEmpty()) return;
+        const EmpColumns cols = detectEmpColumns(db, tbl);
+        if (!cols.valid) return;
+
+        QStringList sel;
+        sel << (cols.id.isEmpty() ? "NULL" : cols.id)
+            << (cols.nom.isEmpty() ? "NULL" : cols.nom)
+            << (cols.poste.isEmpty() ? "NULL" : cols.poste)
+            << (cols.adresse.isEmpty() ? "NULL" : cols.adresse)
+            << (cols.telephone.isEmpty() ? "NULL" : cols.telephone)
+            << (cols.dateEmbauche.isEmpty() ? "NULL" : cols.dateEmbauche)
+            << (cols.salaire.isEmpty() ? "0" : cols.salaire)
+            << (cols.statut.isEmpty() ? "NULL" : cols.statut)
+            << (cols.sexe.isEmpty() ? "NULL" : cols.sexe);
+
+        QSqlQuery q(db);
+        q.setForwardOnly(true);
+        if (!q.exec(QString("SELECT %1 FROM %2 ORDER BY %3").arg(sel.join(","), tbl, cols.id.isEmpty() ? "ROWNUM" : cols.id)))
+            return;
+
+        double sum=0, salMin=0, salMax=0; int total=0, hommes=0, femmes=0; bool first=true;
+        QMap<QString,int> posteCounts;
+        while (q.next()) {
+            int row = employeesTable->rowCount();
+            employeesTable->insertRow(row);
+            for (int c = 0; c < 9; ++c) {
+                QVariant raw = q.value(c);
+                QString val;
+                if (!raw.isNull()) {
+                    if (raw.typeId()==QMetaType::QDate) val=raw.toDate().toString("dd/MM/yyyy");
+                    else if (raw.typeId()==QMetaType::QDateTime) val=raw.toDateTime().date().toString("dd/MM/yyyy");
+                    else val=raw.toString();
+                }
+                auto *item = new QTableWidgetItem(val);
+                item->setTextAlignment(Qt::AlignCenter);
+                employeesTable->setItem(row, c, item);
+            }
+            double sal = q.value(6).toDouble();
+            sum += sal;
+            if (first) { salMin=salMax=sal; first=false; } else { salMin=qMin(salMin,sal); salMax=qMax(salMax,sal); }
+            QString poste = q.value(2).toString().trimmed();
+            if (!poste.isEmpty()) posteCounts[poste]++;
+            QString sexe = q.value(8).toString().trimmed().toLower();
+            if (sexe=="homme"||sexe=="m") hommes++; else if (sexe=="femme"||sexe=="f") femmes++;
+            ++total;
+        }
+        if (empStatsTotal)     empStatsTotal->setText(QString::number(total));
+        if (empStatsAvgSalary) empStatsAvgSalary->setText(QString::number(total?sum/total:0,'f',0)+" DT");
+        if (empStatsHommes)    empStatsHommes->setText(QString::number(hommes));
+        if (empStatsFemmes)    empStatsFemmes->setText(QString::number(femmes));
+        if (empStatsSalMin)    empStatsSalMin->setText(first?"—":QString::number(salMin,'f',0)+" DT");
+        if (empStatsSalMax)    empStatsSalMax->setText(first?"—":QString::number(salMax,'f',0)+" DT");
+        if (empStatsPoste) {
+            QStringList parts;
+            for (auto it=posteCounts.begin();it!=posteCounts.end();++it)
+                parts << QString("%1: %2").arg(it.key()).arg(it.value());
+            empStatsPoste->setText("Postes — " + (parts.isEmpty()?"—":parts.join("  |  ")));
+        }
+    };
+
+    // ── Comportement onglets ──
+    auto setTab = [&](int idx) {
+        if (idx < 0 || idx >= employeeTabButtons.size())
+            idx = 0;
+        for (int i = 0; i < employeeTabButtons.size(); ++i)
+            employeeTabButtons[i]->setChecked(i == idx);
+        if (employeeStack) employeeStack->setCurrentIndex(idx);
+    };
+    connect(btnTabAdd,    &QPushButton::clicked, this, [=]() { setTab(0); });
+    connect(btnTabEdit,   &QPushButton::clicked, this, [=]() { setTab(1); });
+    connect(btnTabDelete, &QPushButton::clicked, this, [=]() { setTab(2); });
+    connect(btnTabList,   &QPushButton::clicked, this, [=]() { refreshEmpTable(); setTab(3); });
+    setTab(0);
+
+    // ── Ajouter ──
+    connect(btnAddEmp, &QPushButton::clicked, this, [=]() {
+        QString id=empIdAdd->text().trimmed(), name=empNameAdd->text().trimmed();
+        if (id.isEmpty()) { QMessageBox::warning(this,"Erreur","CIN/ID obligatoire."); return; }
+        if (name.isEmpty()) { QMessageBox::warning(this,"Erreur","Nom obligatoire."); return; }
+        QSqlDatabase db=Connection::instance()->getDatabase();
+        if (!db.isOpen()) { Connection::instance()->createConnect(); db=Connection::instance()->getDatabase(); }
+        const QString tbl=detectEmployeeTableName(db);
+        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
+        const EmpColumns cols=detectEmpColumns(db,tbl);
+        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes non détectées."); return; }
+        QSqlQuery chk(db);
+        chk.prepare(QString("SELECT 1 FROM %1 WHERE %2=:id").arg(tbl,cols.id));
+        chk.bindValue(":id",id);
+        if (chk.exec()&&chk.next()) { QMessageBox::warning(this,"Doublon","CIN déjà existant."); return; }
+        QStringList insCols={cols.id,cols.nom}, insVals={":id",":nom"};
+        if (!cols.poste.isEmpty())        { insCols<<cols.poste;        insVals<<":poste"; }
+        if (!cols.adresse.isEmpty())      { insCols<<cols.adresse;      insVals<<":adresse"; }
+        if (!cols.telephone.isEmpty())    { insCols<<cols.telephone;    insVals<<":tel"; }
+        if (!cols.dateEmbauche.isEmpty()) { insCols<<cols.dateEmbauche; insVals<<":date_emb"; }
+        if (!cols.salaire.isEmpty())      { insCols<<cols.salaire;      insVals<<":salaire"; }
+        if (!cols.statut.isEmpty())       { insCols<<cols.statut;       insVals<<":statut"; }
+        if (!cols.sexe.isEmpty())         { insCols<<cols.sexe;         insVals<<":sexe"; }
+        QSqlQuery q(db);
+        q.prepare(QString("INSERT INTO %1 (%2) VALUES (%3)").arg(tbl,insCols.join(","),insVals.join(",")));
+        q.bindValue(":id",id); q.bindValue(":nom",name);
+        if (!cols.poste.isEmpty())        q.bindValue(":poste",   empPosteAdd->currentText());
+        if (!cols.adresse.isEmpty())      q.bindValue(":adresse", empAddrAdd->text().trimmed());
+        if (!cols.telephone.isEmpty())    q.bindValue(":tel",     empPhoneAdd->text().trimmed());
+        if (!cols.dateEmbauche.isEmpty()) q.bindValue(":date_emb",empHireDateAdd->date());
+        if (!cols.salaire.isEmpty())      q.bindValue(":salaire", empSalaryAdd->value());
+        if (!cols.statut.isEmpty())       q.bindValue(":statut",  "Actif");
+        if (!cols.sexe.isEmpty())         q.bindValue(":sexe",    empSexAdd->currentText());
+        if (!q.exec()) { QMessageBox::critical(this,"Erreur",q.lastError().text()); return; }
+        QSqlQuery(db).exec("COMMIT");
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé ajouté.");
+    });
+    connect(btnResetEmp, &QPushButton::clicked, this, [=]() {
+        empIdAdd->clear(); empNameAdd->clear(); empAddrAdd->clear();
+        empEmailAdd->clear(); empPhoneAdd->clear();
+        empHireDateAdd->setDate(QDate::currentDate());
+        empPosteAdd->setCurrentIndex(0); empSalaryAdd->setValue(0); empSexAdd->setCurrentIndex(0);
+    });
+
+    // ── Charger pour modifier ──
+    connect(btnSearchEdit, &QPushButton::clicked, this, [=]() {
+        QString id=empSearchEdit->text().trimmed();
+        QSqlDatabase db=Connection::instance()->getDatabase();
+        if (!db.isOpen()) { Connection::instance()->createConnect(); db=Connection::instance()->getDatabase(); }
+        const QString tbl=detectEmployeeTableName(db);
+        const EmpColumns cols=detectEmpColumns(db,tbl);
+        QSqlQuery q(db);
+        q.prepare(QString("SELECT %1,%2,%3 FROM %4 WHERE %5=:id")
+            .arg(cols.nom, cols.telephone.isEmpty()?"NULL":cols.telephone,
+                 cols.salaire.isEmpty()?"0":cols.salaire, tbl, cols.id));
+        q.bindValue(":id",id);
+        if (q.exec()&&q.next()) {
+            empEditName->setText(q.value(0).toString());
+            empEditPhone->setText(q.value(1).toString());
+            empEditSalary->setValue(q.value(2).toDouble());
+        } else { QMessageBox::warning(this,"Introuvable","Employé non trouvé."); }
+    });
+    connect(btnApplyEdit, &QPushButton::clicked, this, [=]() {
+        QString id=empSearchEdit->text().trimmed();
+        if (id.isEmpty()) { QMessageBox::warning(this,"Erreur","Chargez d'abord un employé."); return; }
+        QSqlDatabase db=Connection::instance()->getDatabase();
+        if (!db.isOpen()) { Connection::instance()->createConnect(); db=Connection::instance()->getDatabase(); }
+        const QString tbl=detectEmployeeTableName(db);
+        const EmpColumns cols=detectEmpColumns(db,tbl);
+        QStringList setParts; setParts<<cols.nom+"=:nom";
+        if (!cols.telephone.isEmpty()) setParts<<cols.telephone+"=:tel";
+        if (!cols.salaire.isEmpty())   setParts<<cols.salaire+"=:sal";
+        QSqlQuery q(db);
+        q.prepare(QString("UPDATE %1 SET %2 WHERE %3=:id").arg(tbl,setParts.join(","),cols.id));
+        q.bindValue(":nom",empEditName->text().trimmed());
+        if (!cols.telephone.isEmpty()) q.bindValue(":tel",empEditPhone->text().trimmed());
+        if (!cols.salaire.isEmpty())   q.bindValue(":sal",empEditSalary->value());
+        q.bindValue(":id",id);
+        if (!q.exec()) { QMessageBox::critical(this,"Erreur",q.lastError().text()); return; }
+        QSqlQuery(db).exec("COMMIT");
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé mis à jour.");
+    });
+
+    // ── Supprimer ──
+    connect(btnDel, &QPushButton::clicked, this, [=]() {
+        QString id=empDeleteId->text().trimmed();
+        if (id.isEmpty()) { QMessageBox::warning(this,"Erreur","Entrez un CIN."); return; }
+        if (QMessageBox::question(this,"Confirmation",QString("Supprimer l'employé '%1' ?").arg(id),
+            QMessageBox::Yes|QMessageBox::No)!=QMessageBox::Yes) return;
+        QSqlDatabase db=Connection::instance()->getDatabase();
+        if (!db.isOpen()) { Connection::instance()->createConnect(); db=Connection::instance()->getDatabase(); }
+        const QString tbl=detectEmployeeTableName(db);
+        const EmpColumns cols=detectEmpColumns(db,tbl);
+        QSqlQuery q(db);
+        q.prepare(QString("DELETE FROM %1 WHERE %2=:id").arg(tbl,cols.id));
+        q.bindValue(":id",id);
+        if (!q.exec()) { QMessageBox::critical(this,"Erreur",q.lastError().text()); return; }
+        QSqlQuery(db).exec("COMMIT");
+        refreshEmpTable(); setTab(3);
+        QMessageBox::information(this,"Succès","Employé supprimé.");
+    });
+
+    // ── Export PDF ──
+    connect(btnEmpPdf, &QPushButton::clicked, this, [=]() {
+        QString fileName=QFileDialog::getSaveFileName(this,"Exporter en PDF","employes.pdf","PDF (*.pdf)");
+        if (fileName.isEmpty()) return;
+        QPdfWriter writer(fileName);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setPageMargins(QMarginsF(15,15,15,15),QPageLayout::Millimeter);
+        QPainter painter(&writer);
+        const int W=writer.width(), rowH=80, colW=W/empHeaders.size();
+        int y=0;
+        painter.setFont(QFont("Arial",14,QFont::Bold));
+        painter.drawText(QRect(0,y,W,100),Qt::AlignCenter,"Liste des Employés"); y+=120;
+        painter.setFont(QFont("Arial",8,QFont::Bold));
+        painter.fillRect(QRect(0,y,W,rowH),QColor(59,42,32));
+        painter.setPen(Qt::white);
+        for (int c=0;c<empHeaders.size();++c)
+            painter.drawText(QRect(c*colW+4,y+4,colW-8,rowH-8),Qt::AlignVCenter|Qt::AlignLeft,empHeaders[c]);
+        y+=rowH;
+        painter.setFont(QFont("Arial",7));
+        for (int r=0;r<employeesTable->rowCount();++r) {
+            if (employeesTable->isRowHidden(r)) continue;
+            painter.fillRect(QRect(0,y,W,rowH),(r%2==0)?QColor(255,255,255):QColor(253,247,242));
+            painter.setPen(QColor(59,42,32));
+            for (int c=0;c<empHeaders.size();++c) {
+                auto *item=employeesTable->item(r,c);
+                painter.drawText(QRect(c*colW+4,y+4,colW-8,rowH-8),Qt::AlignVCenter|Qt::AlignLeft,item?item->text():"");
+            }
+            y+=rowH;
+            if (y+rowH>writer.height()-100) { writer.newPage(); y=0; }
+        }
+        painter.end();
+        QMessageBox::information(this,"Export PDF","PDF exporté:\n"+fileName);
+    });
+
+    // Recherche temps réel
+    connect(empSearchBar, &QLineEdit::textChanged, this, [=](const QString &text) {
+        const QString f=text.trimmed().toLower();
+        for (int r=0;r<employeesTable->rowCount();++r) {
+            bool match=f.isEmpty();
+            if (!match) for (int c=0;c<employeesTable->columnCount();++c) {
+                auto *item=employeesTable->item(r,c);
+                if (item&&item->text().toLower().contains(f)) { match=true; break; }
+            }
+            employeesTable->setRowHidden(r,!match);
+        }
+    });
+
+    // Tri
+    connect(empSortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [=](int idx) {
+        if (idx==0) return;
+        int col=1; Qt::SortOrder order=Qt::AscendingOrder;
+        if      (idx==1){col=1;order=Qt::AscendingOrder;}
+        else if (idx==2){col=1;order=Qt::DescendingOrder;}
+        else if (idx==3){col=6;order=Qt::AscendingOrder;}
+        else if (idx==4){col=6;order=Qt::DescendingOrder;}
+        else if (idx==5){col=2;order=Qt::AscendingOrder;}
+        employeesTable->sortItems(col,order);
+    });
+
+    refreshEmpTable();
+}
+

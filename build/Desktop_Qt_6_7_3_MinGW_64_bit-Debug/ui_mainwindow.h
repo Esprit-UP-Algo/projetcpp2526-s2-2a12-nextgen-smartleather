@@ -555,8 +555,8 @@ public:
 
         dsb_price = new QDoubleSpinBox(form_container);
         dsb_price->setObjectName("dsb_price");
-        dsb_price->setMinimumSize(QSize(0, 44));
-        dsb_price->setMaximumSize(QSize(16777215, 44));
+        dsb_price->setMinimumSize(QSize(0, 36));
+        dsb_price->setMaximumSize(QSize(16777215, 36));
         dsb_price->setButtonSymbols(QAbstractSpinBox::NoButtons);
         dsb_price->setMaximum(100000000.000000000000000);
 
@@ -675,7 +675,7 @@ public:
 
         le_email_update = new QLineEdit(update_container);
         le_email_update->setObjectName("le_email_update");
-        le_email_update->setMaximumSize(QSize(16777215, 44));
+        le_email_update->setMaximumSize(QSize(16777215, 36));
 
         updateForm->setWidget(3, QFormLayout::FieldRole, le_email_update);
 
@@ -736,7 +736,7 @@ public:
 
         de_date_update = new QDateEdit(update_container);
         de_date_update->setObjectName("de_date_update");
-        de_date_update->setMaximumSize(QSize(16777215, 44));
+        de_date_update->setMaximumSize(QSize(16777215, 36));
         de_date_update->setCalendarPopup(true);
 
         updateForm->setWidget(6, QFormLayout::FieldRole, de_date_update);
@@ -748,7 +748,7 @@ public:
 
         de_date_delivery_update = new QDateEdit(update_container);
         de_date_delivery_update->setObjectName("de_date_delivery_update");
-        de_date_delivery_update->setMaximumSize(QSize(16777215, 44));
+        de_date_delivery_update->setMaximumSize(QSize(16777215, 36));
         de_date_delivery_update->setCalendarPopup(true);
 
         updateForm->setWidget(7, QFormLayout::FieldRole, de_date_delivery_update);
@@ -760,8 +760,8 @@ public:
 
         dsb_price_update = new QDoubleSpinBox(update_container);
         dsb_price_update->setObjectName("dsb_price_update");
-        dsb_price_update->setMinimumSize(QSize(0, 44));
-        dsb_price_update->setMaximumSize(QSize(16777215, 44));
+        dsb_price_update->setMinimumSize(QSize(0, 36));
+        dsb_price_update->setMaximumSize(QSize(16777215, 36));
         dsb_price_update->setButtonSymbols(QAbstractSpinBox::NoButtons);
         dsb_price_update->setMaximum(100000000.000000000000000);
 
@@ -1004,11 +1004,11 @@ public:
         scrollArea_stats->setWidgetResizable(true);
         scrollAreaWidgetContents_stats = new QWidget();
         scrollAreaWidgetContents_stats->setObjectName("scrollAreaWidgetContents_stats");
-        scrollAreaWidgetContents_stats->setGeometry(QRect(0, 0, 961, 1595));
+        scrollAreaWidgetContents_stats->setGeometry(QRect(0, 0, 920, 1595));
         pageStatsInnerLayout = new QVBoxLayout(scrollAreaWidgetContents_stats);
         pageStatsInnerLayout->setSpacing(15);
         pageStatsInnerLayout->setObjectName("pageStatsInnerLayout");
-        pageStatsInnerLayout->setContentsMargins(20, 10, 20, 20);
+        pageStatsInnerLayout->setContentsMargins(15, 10, 15, 20);
         label_stats_title = new QLabel(scrollAreaWidgetContents_stats);
         label_stats_title->setObjectName("label_stats_title");
         label_stats_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
@@ -1142,7 +1142,7 @@ public:
         pageEmailLayout = new QVBoxLayout(page_email_auto);
         pageEmailLayout->setSpacing(20);
         pageEmailLayout->setObjectName("pageEmailLayout");
-        pageEmailLayout->setContentsMargins(40, 30, 40, 40);
+        pageEmailLayout->setContentsMargins(20, 30, 20, 40);
         label_email_title = new QLabel(page_email_auto);
         label_email_title->setObjectName("label_email_title");
         label_email_title->setAlignment(Qt::AlignmentFlag::AlignCenter);
@@ -1170,7 +1170,7 @@ public:
         pageCalendarLayout = new QVBoxLayout(page_calendar);
         pageCalendarLayout->setSpacing(15);
         pageCalendarLayout->setObjectName("pageCalendarLayout");
-        pageCalendarLayout->setContentsMargins(20, 10, 20, 20);
+        pageCalendarLayout->setContentsMargins(15, 10, 15, 20);
         label_calendar_title = new QLabel(page_calendar);
         label_calendar_title->setObjectName("label_calendar_title");
         label_calendar_title->setAlignment(Qt::AlignmentFlag::AlignCenter);

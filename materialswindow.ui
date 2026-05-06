@@ -28,7 +28,7 @@
 
     QLabel { color: #4E2C23; font-size: 13px; font-weight: bold; }
     QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QComboBox {
-      background-color: #FFFCFA; border: 1px solid #DDC6B0; padding: 14px 16px; border-radius: 12px; color: #3D362D; font-size: 14px; min-height: 48px;
+      background-color: #FFFCFA; border: 1px solid #DDC6B0; padding: 10px 12px; border-radius: 12px; color: #3D362D; font-size: 14px; min-height: 36px;
     }
     QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QComboBox:focus {
       border: 2px solid #C68E65; background-color: white;
@@ -145,7 +145,7 @@
      <rect>
       <x>283</x>
       <y>1</y>
-      <width>916</width>
+      <width>907</width>
       <height>73</height>
      </rect>
     </property>
@@ -424,7 +424,7 @@
              <property name="minimumSize">
               <size>
                <width>686</width>
-               <height>98</height>
+               <height>36</height>
               </size>
              </property>
              <property name="placeholderText">
@@ -437,7 +437,7 @@
              <property name="minimumSize">
               <size>
                <width>143</width>
-               <height>64</height>
+               <height>36</height>
               </size>
              </property>
              <property name="text">
@@ -461,7 +461,7 @@
              <property name="minimumSize">
               <size>
                <width>724</width>
-               <height>98</height>
+               <height>36</height>
               </size>
              </property>
              <property name="readOnly">
@@ -481,7 +481,7 @@
              <property name="minimumSize">
               <size>
                <width>724</width>
-               <height>98</height>
+               <height>36</height>
               </size>
              </property>
              <item>

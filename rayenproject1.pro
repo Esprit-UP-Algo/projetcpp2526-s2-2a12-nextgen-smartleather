@@ -1,4 +1,4 @@
-QT       += core gui printsupport sql charts network
+QT       += core gui printsupport sql charts network multimedia multimediawidgets
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -13,13 +13,15 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     smtp.cpp \
-    materialswindow.cpp
+    materialswindow.cpp \
+    logindialog.cpp
 
 HEADERS += \
     connection.h \
     mainwindow.h \
     smtp.h \
-    materialswindow.h
+    materialswindow.h \
+    logindialog.h
 
 FORMS += \
     mainwindow.ui \
