@@ -7,9 +7,13 @@
 #include <QPdfWriter>
 #include <QPainter>
 #include <QFileDialog>
+#include <QDir>
 #include <QPageSize>
 #include <QStandardItemModel>
+#include <QDateTime>
 #include <QPixmap>
+#include <QSerialPortInfo>
+
 // Database
 #include "connection.h"
 #include <QSqlQuery>
@@ -29,6 +33,8 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    serialPort = new QSerialPort(this);
+    setupSerialPort();
     // --- CONFIGURATION GLOBALE ---
 
     // Chargement du logo
@@ -141,6 +147,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->btn_tab_supp_update->setChecked(false);
         ui->btn_tab_supp_delete->setChecked(false);
         ui->btn_tab_supp_list->setChecked(false);
+        ui->btn_tab_supp_stats->setChecked(false);
     });
 
     connect(ui->btn_tab_supp_update, &QPushButton::clicked, this, [=]() {
@@ -149,6 +156,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->btn_tab_supp_update->setChecked(true);
         ui->btn_tab_supp_delete->setChecked(false);
         ui->btn_tab_supp_list->setChecked(false);
+        ui->btn_tab_supp_stats->setChecked(false);
     });
 
     connect(ui->btn_tab_supp_delete, &QPushButton::clicked, this, [=]() {
@@ -157,6 +165,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->btn_tab_supp_update->setChecked(false);
         ui->btn_tab_supp_delete->setChecked(true);
         ui->btn_tab_supp_list->setChecked(false);
+        ui->btn_tab_supp_stats->setChecked(false);
     });
 
     connect(ui->btn_tab_supp_list, &QPushButton::clicked, this, [=]() {
@@ -165,6 +174,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->btn_tab_supp_update->setChecked(false);
         ui->btn_tab_supp_delete->setChecked(false);
         ui->btn_tab_supp_list->setChecked(true);
+        ui->btn_tab_supp_stats->setChecked(false);
     });
     // Create a dedicated statistics page for suppliers (programmatically)
     pageSuppStats = new QWidget(this);
@@ -897,6 +907,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->btnEnregistrer, &QPushButton::clicked, this, [=]() {
         Supplier s;
         s.nom = ui->txtNom->text().trimmed();
+        s.id = ui->txtId->text().trimmed();
         s.type = ui->txtType->text().trimmed();
         s.adresse = ui->txtAdresse->text().trimmed();
         s.telephone = ui->txtTelephone->text().trimmed();
@@ -925,6 +936,11 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
 
+        if (s.id.isEmpty()) {
+            QMessageBox::warning(this, "Erreur", "L'ID du fournisseur est obligatoire.");
+            return;
+        }
+
         // Check DB connection
         QSqlDatabase db = QSqlDatabase::database();
         if (!db.isOpen()) {
@@ -938,6 +954,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (addSupplier(s)) {
             QMessageBox::information(this, "Succès", "Fournisseur enregistré avec succès.");
             // clear form
+            ui->txtId->clear();
             ui->txtNom->clear(); ui->txtType->clear(); ui->txtAdresse->clear(); ui->txtTelephone->clear(); ui->txtEmail->clear(); ui->spinDelai->setValue(1); ui->spinPrix->setValue(0);
             refreshSupplierTable();
         } else {
@@ -947,6 +964,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- Suppliers: Reset Add Form ---
     connect(ui->btnReinitialiser, &QPushButton::clicked, this, [=]() {
+        ui->txtId->clear();
         ui->txtNom->clear(); ui->txtType->clear(); ui->txtAdresse->clear(); ui->txtTelephone->clear(); ui->txtEmail->clear(); ui->spinDelai->setValue(1); ui->spinPrix->setValue(0); ui->txtNotes->clear();
     });
 
@@ -971,7 +989,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         QSqlQuery q;
-        q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :term OR NOM LIKE :likeTerm");
+        q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :term OR ID_FOURNISSEUR LIKE :likeTerm OR UPPER(NOM) LIKE UPPER(:likeTerm) OR UPPER(TYPE_MATIERE_FOURNIE) LIKE UPPER(:likeTerm)");
         q.bindValue(":term", term);
         q.bindValue(":likeTerm", QString("%") + term + QString("%"));
         if (!q.exec()) {
@@ -1042,7 +1060,7 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
         QSqlQuery q;
-        q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :term OR NOM LIKE :likeTerm");
+        q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :term OR ID_FOURNISSEUR LIKE :likeTerm OR UPPER(NOM) LIKE UPPER(:likeTerm) OR UPPER(TYPE_MATIERE_FOURNIE) LIKE UPPER(:likeTerm)");
         q.bindValue(":term", term);
         q.bindValue(":likeTerm", QString("%") + term + QString("%"));
         if (!q.exec()) {
@@ -1083,6 +1101,98 @@ MainWindow::MainWindow(QWidget *parent)
         refreshSupplierTable();
     });
 
+    connect(ui->btnRinitialiserFiltres, &QPushButton::clicked, this, [=]() {
+        ui->txtFilterNom->clear();
+        ui->txtFilterType->clear();
+        ui->txtFilterStatut->clear();
+        refreshSupplierTable();
+    });
+
+    connect(ui->comboTriSuppliers, &QComboBox::currentTextChanged, this, [=](const QString &) {
+        refreshSupplierTable();
+    });
+
+    ui->tableFournisseurs->setSortingEnabled(true);
+    ui->tableFournisseurs->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui->tableFournisseurs->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui->tableFournisseurs->setSelectionMode(QAbstractItemView::SingleSelection);
+
+    connect(ui->tableFournisseurs, &QTableWidget::itemSelectionChanged, this, [=]() {
+        QList<QTableWidgetItem*> items = ui->tableFournisseurs->selectedItems();
+        if (items.isEmpty()) {
+            ui->lblSelectedSupplier->setText("Sélectionnez un fournisseur pour effectuer une action");
+            ui->btnModifierDuTableau->setEnabled(false);
+            ui->btnSupprimerDuTableau->setEnabled(false);
+            currentSupplierId.clear();
+            return;
+        }
+        QString id = items.first()->text();
+        ui->lblSelectedSupplier->setText(QString("Fournisseur sélectionné : %1").arg(id));
+        ui->btnModifierDuTableau->setEnabled(true);
+        ui->btnSupprimerDuTableau->setEnabled(true);
+        currentSupplierId = id;
+    });
+
+    connect(ui->btnModifierDuTableau, &QPushButton::clicked, this, [=]() {
+        if (currentSupplierId.isEmpty()) {
+            QMessageBox::warning(this, "Erreur", "Sélectionnez d'abord un fournisseur dans la liste.");
+            return;
+        }
+        QSqlQuery q;
+        q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :id");
+        q.bindValue(":id", currentSupplierId);
+        if (!q.exec() || !q.next()) {
+            QMessageBox::warning(this, "Erreur", "Impossible de charger le fournisseur sélectionné.");
+            return;
+        }
+        ui->txtRechercheModifier->setText(q.value("ID_FOURNISSEUR").toString());
+        ui->txtNomMod->setText(q.value("NOM").toString());
+        ui->txtTypeMod->setText(q.value("TYPE_MATIERE_FOURNIE").toString());
+        ui->txtAdresseMod->setText(q.value("ADRESSE").toString());
+        ui->txtTelephoneMod->setText(q.value("TELEPHONE").toString());
+        ui->txtEmailMod->setText(q.value("EMAIL").toString());
+        ui->spinDelaiMod->setValue(q.value("DELAI_LIVRAISON_MOYEN").toInt());
+        ui->spinPrixMod->setValue(q.value("PRIX_MOYEN_MATIERES").toDouble());
+        ui->comboStatutMod->setCurrentText(q.value("STATUT").toString());
+        ui->stackedWidget_suppliers->setCurrentWidget(ui->page_supp_update);
+        ui->btn_tab_supp_add->setChecked(false);
+        ui->btn_tab_supp_update->setChecked(true);
+        ui->btn_tab_supp_delete->setChecked(false);
+        ui->btn_tab_supp_list->setChecked(false);
+        ui->btn_tab_supp_stats->setChecked(false);
+    });
+
+    connect(ui->btnSupprimerDuTableau, &QPushButton::clicked, this, [=]() {
+        if (currentSupplierId.isEmpty()) {
+            QMessageBox::warning(this, "Erreur", "Sélectionnez d'abord un fournisseur dans la liste.");
+            return;
+        }
+        if (QMessageBox::question(this, "Confirmation", "Voulez-vous supprimer ce fournisseur ?") != QMessageBox::Yes) {
+            return;
+        }
+        if (deleteSupplier(currentSupplierId)) {
+            QMessageBox::information(this, "Succès", "Fournisseur supprimé avec succès.");
+            currentSupplierId.clear();
+            refreshSupplierTable();
+        } else {
+            QMessageBox::warning(this, "Erreur", "Échec lors de la suppression du fournisseur.");
+        }
+    });
+
+    connect(ui->btnExportSuppliersPDF, &QPushButton::clicked, this, [=]() {
+        exportSuppliersToPDF();
+    });
+
+    connect(ui->btn_tab_supp_stats, &QPushButton::clicked, this, [=]() {
+        ui->stackedWidget_suppliers->setCurrentWidget(pageSuppStats);
+        ui->btn_tab_supp_add->setChecked(false);
+        ui->btn_tab_supp_update->setChecked(false);
+        ui->btn_tab_supp_delete->setChecked(false);
+        ui->btn_tab_supp_list->setChecked(false);
+        ui->btn_tab_supp_stats->setChecked(true);
+        displaySupplierStats();
+    });
+
 }
 
 MainWindow::~MainWindow()
@@ -1107,24 +1217,37 @@ bool MainWindow::addSupplier(const Supplier &supplier)
     qDebug() << "prix:" << supplier.prix;
     qDebug() << "statut:" << supplier.statut;
     
-    // Generate ID: get max ID + 1
-    QSqlQuery qMaxId;
-    qMaxId.prepare("SELECT MAX(ID_FOURNISSEUR) as maxId FROM SUPPLIERS_MATERIALS");
-    int newId = 1;
-    if (qMaxId.exec()) {
-        if (qMaxId.next()) {
-            int maxId = qMaxId.value("maxId").toInt();
-            newId = maxId + 1;
+    QString id = supplier.id.trimmed();
+    if (id.isEmpty()) {
+        // Generate ID: get max ID + 1 when no manual ID is provided
+        QSqlQuery qMaxId;
+        qMaxId.prepare("SELECT MAX(ID_FOURNISSEUR) as maxId FROM SUPPLIERS_MATERIALS");
+        int newId = 1;
+        if (qMaxId.exec()) {
+            if (qMaxId.next()) {
+                int maxId = qMaxId.value("maxId").toInt();
+                newId = maxId + 1;
+            }
+        } else {
+            qDebug() << "Error getting max ID:" << qMaxId.lastError().text();
         }
-    } else {
-        qDebug() << "Error getting max ID:" << qMaxId.lastError().text();
+        id = QString::number(newId);
     }
-    qDebug() << "Generated ID:" << newId;
+    qDebug() << "Using ID:" << id;
+    if (!supplier.id.trimmed().isEmpty()) {
+        QSqlQuery qCheck;
+        qCheck.prepare("SELECT COUNT(*) FROM SUPPLIERS_MATERIALS WHERE ID_FOURNISSEUR = :id");
+        qCheck.bindValue(":id", id);
+        if (qCheck.exec() && qCheck.next() && qCheck.value(0).toInt() > 0) {
+            qDebug() << "addSupplier error: ID already exists";
+            return false;
+        }
+    }
     
     QSqlQuery q;
     q.prepare("INSERT INTO SUPPLIERS_MATERIALS (ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT)"
               " VALUES (:id, :nom, :type, :adresse, :tel, :email, :delai, :prix, :statut)");
-    q.bindValue(":id", newId);
+    q.bindValue(":id", id);
     q.bindValue(":nom", supplier.nom);
     q.bindValue(":type", supplier.type);
     q.bindValue(":adresse", supplier.adresse);
@@ -1206,21 +1329,44 @@ void MainWindow::refreshSupplierTable()
     QString filterType = ui->txtFilterType->text().trimmed();
     QString filterStatut = ui->txtFilterStatut->text().trimmed();
 
-    QString queryStr = "SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, TELEPHONE, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE 1=1";
-    if (!filterName.isEmpty()) queryStr += " AND NOM LIKE :name";
-    if (!filterType.isEmpty()) queryStr += " AND TYPE_MATIERE_FOURNIE LIKE :type";
-    if (!filterStatut.isEmpty()) queryStr += " AND STATUT LIKE :statut";
+    QString sortOption = ui->comboTriSuppliers->currentText();
+    QString queryStr = "SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, TELEPHONE, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE ";
+                       "(:name = '' OR UPPER(NOM) LIKE UPPER(:name)) AND "
+                       "(:type = '' OR UPPER(TYPE_MATIERE_FOURNIE) LIKE UPPER(:type)) AND "
+                       "(:statut = '' OR UPPER(STATUT) LIKE UPPER(:statut))";
+
+    if (sortOption == "Trier par prix") {
+        queryStr += " ORDER BY PRIX_MOYEN_MATIERES ASC";
+    } else if (sortOption == "Trier par délai") {
+        queryStr += " ORDER BY DELAI_LIVRAISON_MOYEN ASC";
+    } else if (sortOption == "Prix croissant") {
+        queryStr += " ORDER BY PRIX_MOYEN_MATIERES ASC";
+    } else if (sortOption == "Prix décroissant") {
+        queryStr += " ORDER BY PRIX_MOYEN_MATIERES DESC";
+    } else if (sortOption == "Délai croissant") {
+        queryStr += " ORDER BY DELAI_LIVRAISON_MOYEN ASC";
+    } else if (sortOption == "Délai décroissant") {
+        queryStr += " ORDER BY DELAI_LIVRAISON_MOYEN DESC";
+    }
+
+    qDebug() << "Query string:" << queryStr;
+    qDebug() << "Filters - Name:" << filterName << "Type:" << filterType << "Statut:" << filterStatut;
+    qDebug() << "Sort option:" << sortOption;
 
     QSqlQuery q;
     q.prepare(queryStr);
-    if (!filterName.isEmpty()) q.bindValue(":name", QString("%") + filterName + QString("%"));
-    if (!filterType.isEmpty()) q.bindValue(":type", QString("%") + filterType + QString("%"));
-    if (!filterStatut.isEmpty()) q.bindValue(":statut", QString("%") + filterStatut + QString("%"));
+    q.bindValue(":name", filterName.isEmpty() ? QString("") : QString("%") + filterName + QString("%"));
+    q.bindValue(":type", filterType.isEmpty() ? QString("") : QString("%") + filterType + QString("%"));
+    q.bindValue(":statut", filterStatut.isEmpty() ? QString("") : QString("%") + filterStatut + QString("%"));
+
+    qDebug() << "Bound values - name:" << q.boundValue(":name") << "type:" << q.boundValue(":type") << "statut:" << q.boundValue(":statut");
 
     if (!q.exec()) {
         qDebug() << "refreshSupplierTable error:" << q.lastError().text();
         return;
     }
+
+    qDebug() << "Query executed successfully";
 
     ui->tableFournisseurs->setRowCount(0);
     int row = 0;
@@ -1230,6 +1376,7 @@ void MainWindow::refreshSupplierTable()
     double totalDelai = 0;
 
     while (q.next()) {
+        qDebug() << "Processing row:" << row << "ID:" << q.value("ID_FOURNISSEUR").toString();
         ui->tableFournisseurs->insertRow(row);
         ui->tableFournisseurs->setItem(row, 0, new QTableWidgetItem(q.value("ID_FOURNISSEUR").toString()));
         ui->tableFournisseurs->setItem(row, 1, new QTableWidgetItem(q.value("NOM").toString()));
@@ -1248,6 +1395,8 @@ void MainWindow::refreshSupplierTable()
 
         row++;
     }
+
+    qDebug() << "Total rows processed:" << row;
 
     // Update stat labels if present
     if (ui->lblStatTotal) ui->lblStatTotal->setText(QString::number(totalSup));
@@ -1331,6 +1480,18 @@ void MainWindow::displaySupplierStats()
         details += QString("- %1 : %2\n").arg(it.key()).arg(it.value());
     }
 
+    Supplier *suggestion = suggestBestSupplier();
+    if (suggestion) {
+        details += "\nSuggestion de fournisseur :\n";
+        details += QString("%1 (%2) - Prix: %3 TND, Délai: %4 jours\n")
+                .arg(suggestion->nom)
+                .arg(suggestion->type)
+                .arg(suggestion->prix, 0, 'f', 2)
+                .arg(suggestion->delai);
+    } else {
+        details += "\nAucune suggestion disponible actuellement.\n";
+    }
+
     // Populate the statistics page if present
     if (lblTotalStatsPage) lblTotalStatsPage->setText(QString::number(total));
     if (lblActiveStatsPage) lblActiveStatsPage->setText(QString::number(active));
@@ -1338,8 +1499,371 @@ void MainWindow::displaySupplierStats()
     if (lblAvgDelaiPage) lblAvgDelaiPage->setText(QString::number((int)avgDelai) + " jours");
     if (txtStatsBreakdown) txtStatsBreakdown->setPlainText(details);
 
+    displaySupplierHistory();
+
     // If statistics page isn't available, fall back to message box
     if (!pageSuppStats) {
         QMessageBox::information(this, "Statistiques Fournisseurs", details);
     }
+}
+
+void MainWindow::displaySupplierHistory()
+{
+    QSqlQuery q;
+    QString history = "\nHistorique récent des fournisseurs :\n";
+    if (q.exec("SELECT ID_FOURNISSEUR, NOM, PRIX_MOYEN_MATIERES, DELAI_LIVRAISON_MOYEN, STATUT FROM SUPPLIERS_MATERIALS ORDER BY ID_FOURNISSEUR DESC")) {
+        int count = 0;
+        while (q.next() && count < 6) {
+            history += QString("%1 - %2 | Prix: %3 TND | Délai: %4 jours | Statut: %5\n")
+                    .arg(q.value(0).toString(), q.value(1).toString())
+                    .arg(q.value(2).toDouble(), 0, 'f', 2)
+                    .arg(q.value(3).toInt())
+                    .arg(q.value(4).toString());
+            count++;
+        }
+        if (count == 0) {
+            history += "Aucun fournisseur disponible pour l'historique.\n";
+        }
+    } else {
+        history += "Impossible de charger l'historique des fournisseurs.\n";
+    }
+    if (txtStatsBreakdown) {
+        txtStatsBreakdown->appendPlainText(history);
+    }
+}
+
+QVector<Supplier> MainWindow::searchSuppliers(const QString &nom, const QString &type)
+{
+    QVector<Supplier> result;
+    QSqlQuery q;
+    QString queryStr = "SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE 1=1";
+    if (!nom.trimmed().isEmpty()) queryStr += " AND UPPER(NOM) LIKE UPPER(:nom)";
+    if (!type.trimmed().isEmpty()) queryStr += " AND UPPER(TYPE_MATIERE_FOURNIE) LIKE UPPER(:type)";
+    q.prepare(queryStr);
+    if (!nom.trimmed().isEmpty()) q.bindValue(":nom", QString("%") + nom.trimmed().toUpper() + QString("%"));
+    if (!type.trimmed().isEmpty()) q.bindValue(":type", QString("%") + type.trimmed().toUpper() + QString("%"));
+    if (!q.exec()) {
+        qDebug() << "searchSuppliers error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        Supplier supplier;
+        supplier.id = q.value("ID_FOURNISSEUR").toString();
+        supplier.nom = q.value("NOM").toString();
+        supplier.type = q.value("TYPE_MATIERE_FOURNIE").toString();
+        supplier.adresse = q.value("ADRESSE").toString();
+        supplier.telephone = q.value("TELEPHONE").toString();
+        supplier.email = q.value("EMAIL").toString();
+        supplier.delai = q.value("DELAI_LIVRAISON_MOYEN").toInt();
+        supplier.prix = q.value("PRIX_MOYEN_MATIERES").toDouble();
+        supplier.statut = q.value("STATUT").toString();
+        result.append(supplier);
+    }
+    return result;
+}
+
+QVector<Supplier> MainWindow::sortByPrice()
+{
+    QVector<Supplier> result;
+    QSqlQuery q;
+    if (!q.exec("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS ORDER BY PRIX_MOYEN_MATIERES ASC")) {
+        qDebug() << "sortByPrice error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        Supplier supplier;
+        supplier.id = q.value("ID_FOURNISSEUR").toString();
+        supplier.nom = q.value("NOM").toString();
+        supplier.type = q.value("TYPE_MATIERE_FOURNIE").toString();
+        supplier.adresse = q.value("ADRESSE").toString();
+        supplier.telephone = q.value("TELEPHONE").toString();
+        supplier.email = q.value("EMAIL").toString();
+        supplier.delai = q.value("DELAI_LIVRAISON_MOYEN").toInt();
+        supplier.prix = q.value("PRIX_MOYEN_MATIERES").toDouble();
+        supplier.statut = q.value("STATUT").toString();
+        result.append(supplier);
+    }
+    return result;
+}
+
+QVector<Supplier> MainWindow::sortByDelai()
+{
+    QVector<Supplier> result;
+    QSqlQuery q;
+    if (!q.exec("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS ORDER BY DELAI_LIVRAISON_MOYEN ASC")) {
+        qDebug() << "sortByDelai error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        Supplier supplier;
+        supplier.id = q.value("ID_FOURNISSEUR").toString();
+        supplier.nom = q.value("NOM").toString();
+        supplier.type = q.value("TYPE_MATIERE_FOURNIE").toString();
+        supplier.adresse = q.value("ADRESSE").toString();
+        supplier.telephone = q.value("TELEPHONE").toString();
+        supplier.email = q.value("EMAIL").toString();
+        supplier.delai = q.value("DELAI_LIVRAISON_MOYEN").toInt();
+        supplier.prix = q.value("PRIX_MOYEN_MATIERES").toDouble();
+        supplier.statut = q.value("STATUT").toString();
+        result.append(supplier);
+    }
+    return result;
+}
+
+Supplier* MainWindow::suggestBestSupplier()
+{
+    QSqlQuery q;
+    q.prepare("SELECT ID_FOURNISSEUR, NOM, TYPE_MATIERE_FOURNIE, ADRESSE, TELEPHONE, EMAIL, DELAI_LIVRAISON_MOYEN, PRIX_MOYEN_MATIERES, STATUT FROM SUPPLIERS_MATERIALS WHERE UPPER(STATUT) = 'ACTIF' ORDER BY PRIX_MOYEN_MATIERES ASC, DELAI_LIVRAISON_MOYEN ASC LIMIT 1");
+    if (!q.exec()) {
+        qDebug() << "suggestBestSupplier error:" << q.lastError().text();
+        return nullptr;
+    }
+    if (q.next()) {
+        currentSupplier.id = q.value("ID_FOURNISSEUR").toString();
+        currentSupplier.nom = q.value("NOM").toString();
+        currentSupplier.type = q.value("TYPE_MATIERE_FOURNIE").toString();
+        currentSupplier.adresse = q.value("ADRESSE").toString();
+        currentSupplier.telephone = q.value("TELEPHONE").toString();
+        currentSupplier.email = q.value("EMAIL").toString();
+        currentSupplier.delai = q.value("DELAI_LIVRAISON_MOYEN").toInt();
+        currentSupplier.prix = q.value("PRIX_MOYEN_MATIERES").toDouble();
+        currentSupplier.statut = q.value("STATUT").toString();
+        return &currentSupplier;
+    }
+    return nullptr;
+}
+
+void MainWindow::exportSuppliersToPDF()
+{
+    QString fileName = QFileDialog::getSaveFileName(this, "Exporter les fournisseurs en PDF", QDir::homePath() + "/fournisseurs.pdf", "PDF Files (*.pdf)");
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    QPdfWriter writer(fileName);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setResolution(300);
+    QPainter painter(&writer);
+    if (!painter.isActive()) {
+        QMessageBox::warning(this, "Erreur", "Erreur lors de la création du fichier PDF.");
+        return;
+    }
+
+    QFont headerFont("Arial", 14, QFont::Bold);
+    QFont normalFont("Arial", 10);
+    painter.setFont(headerFont);
+    int y = 40;
+    painter.drawText(30, y, "Liste des fournisseurs");
+    y += 25;
+    painter.setFont(normalFont);
+    painter.drawText(30, y, QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm"));
+    y += 30;
+
+    int rowCount = ui->tableFournisseurs->rowCount();
+    int colCount = ui->tableFournisseurs->columnCount();
+    QStringList headers;
+    for (int c = 0; c < colCount; ++c) {
+        headers << ui->tableFournisseurs->horizontalHeaderItem(c)->text();
+    }
+    painter.drawText(30, y, headers.join(" | "));
+    y += 20;
+
+    for (int r = 0; r < rowCount; ++r) {
+        QStringList rowData;
+        for (int c = 0; c < colCount; ++c) {
+            QTableWidgetItem *item = ui->tableFournisseurs->item(r, c);
+            rowData << (item ? item->text() : "");
+        }
+        painter.drawText(30, y, rowData.join(" | "));
+        y += 18;
+        if (y > writer.height() - 40) {
+            writer.newPage();
+            y = 40;
+        }
+    }
+
+    painter.end();
+    QMessageBox::information(this, "Export PDF", "Export PDF terminé avec succès.");
+}
+// ============================================================
+// RFID — Serial Port Setup
+// ============================================================
+void MainWindow::setupSerialPort()
+{
+    qDebug() << "=== setupSerialPort() called ===";
+    qDebug() << "Available ports:";
+
+    QString arduinoPort = "";
+    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts()) {
+        qDebug() << "  Port:" << info.portName()
+                 << "| Description:" << info.description()
+                 << "| Manufacturer:" << info.manufacturer();
+
+        // Auto-detect Arduino
+        if (info.description().contains("Arduino", Qt::CaseInsensitive) ||
+            info.description().contains("CH340",   Qt::CaseInsensitive) ||
+            info.description().contains("CH341",   Qt::CaseInsensitive) ||
+            info.description().contains("USB-SERIAL", Qt::CaseInsensitive)) {
+            arduinoPort = info.portName();
+            qDebug() << "  >>> Arduino detected on:" << arduinoPort;
+        }
+    }
+
+    if (arduinoPort.isEmpty()) {
+        qDebug() << "No Arduino auto-detected, trying COM3...";
+        arduinoPort = "COM4"; // fallback
+    }
+
+    serialPort->setPortName(arduinoPort);
+    serialPort->setBaudRate(QSerialPort::Baud9600);
+    serialPort->setDataBits(QSerialPort::Data8);
+    serialPort->setParity(QSerialPort::NoParity);
+    serialPort->setStopBits(QSerialPort::OneStop);
+    serialPort->setFlowControl(QSerialPort::NoFlowControl);
+
+    if (serialPort->open(QIODevice::ReadWrite)) {
+        qDebug() << "=== Serial port OPENED successfully:" << serialPort->portName() << "===";
+        connect(serialPort, &QSerialPort::readyRead,
+                this,       &MainWindow::handleSerialData);
+    } else {
+        qDebug() << "=== Serial port FAILED:" << serialPort->errorString() << "===";
+        QMessageBox::warning(this, "Port Serie",
+            "Impossible d'ouvrir le port serie: " + arduinoPort + "\n"
+            "Erreur: " + serialPort->errorString());
+    }
+}
+// ============================================================
+// RFID — Handle incoming Arduino data
+// ============================================================
+void MainWindow::handleSerialData()
+{
+    serialBuffer += QString::fromLatin1(serialPort->readAll());
+
+    while (serialBuffer.contains('\n')) {
+        int idx      = serialBuffer.indexOf('\n');
+        QString line = serialBuffer.left(idx).trimmed();
+        serialBuffer = serialBuffer.mid(idx + 1);
+
+        if (line.isEmpty()) continue;
+        qDebug() << "[Arduino]" << line;
+
+        if (line.startsWith("TAG:")) {
+            QString tagId = line.mid(4).trimmed();
+
+            // --------------------------------------------------
+            // BINDING MODE — link this tag to selected employee
+            // --------------------------------------------------
+            if (rfidBindingMode) {
+
+                // Check tag not already assigned
+                QSqlQuery checkQ;
+                checkQ.prepare("SELECT CIN, NOM FROM EMPLOYE "
+                               "WHERE RFID = :rfid AND ROWNUM = 1");
+                checkQ.bindValue(":rfid", tagId);
+                checkQ.exec();
+
+                if (checkQ.next()) {
+                    QMessageBox::warning(this, "Tag deja utilise",
+                        "Ce tag est deja lie a:\n" +
+                        checkQ.value("NOM").toString() +
+                        " (CIN: " + checkQ.value("CIN").toString() + ")");
+                    rfidBindingMode   = false;
+                    rfidBindingTarget = "";
+                    return;
+                }
+
+                // Assign tag to employee
+                QSqlQuery q;
+                q.prepare("UPDATE EMPLOYE SET RFID = :rfid WHERE CIN = :cin");
+                q.bindValue(":rfid", tagId);
+                q.bindValue(":cin",  rfidBindingTarget);
+
+                if (q.exec() && q.numRowsAffected() > 0) {
+                    QSqlQuery nameQ;
+                    nameQ.prepare("SELECT NOM, POSTE FROM EMPLOYE "
+                                  "WHERE CIN = :cin AND ROWNUM = 1");
+                    nameQ.bindValue(":cin", rfidBindingTarget);
+                    nameQ.exec();
+                    QString nom = "", poste = "";
+                    if (nameQ.next()) {
+                        nom   = nameQ.value("NOM").toString();
+                        poste = nameQ.value("POSTE").toString();
+                    }
+                    QMessageBox::information(this, "RFID lie avec succes",
+                        "Tag: "     + tagId            + "\n"
+                        "Employe: " + nom               + "\n"
+                        "Poste: "   + poste             + "\n"
+                        "CIN: "     + rfidBindingTarget);
+                } else {
+                    QMessageBox::warning(this, "Erreur",
+                        "Impossible de lier: " + q.lastError().text());
+                }
+
+                rfidBindingMode   = false;
+                rfidBindingTarget = "";
+
+            // --------------------------------------------------
+            // NORMAL MODE — check access
+            // --------------------------------------------------
+            } else {
+                QSqlQuery q;
+                q.prepare("SELECT CIN, NOM, POSTE, STATUT FROM EMPLOYE "
+                          "WHERE RFID = :rfid AND ROWNUM = 1");
+                q.bindValue(":rfid", tagId);
+
+                if (!q.exec()) {
+                    qDebug() << "Erreur requete:" << q.lastError().text();
+                    serialPort->write("DENIED\n");
+                    logAccessEvent(tagId, "ERREUR_DB", false);
+                    continue;
+                }
+
+                if (q.next()) {
+                    QString nom    = q.value("NOM").toString();
+                    QString poste  = q.value("POSTE").toString();
+                    QString statut = q.value("STATUT").toString();
+
+                    if (statut.toLower() == "actif") {
+                        serialPort->write("OPEN\n");
+                        logAccessEvent(tagId, nom, true);
+                        qDebug() << "Acces accorde:" << nom << poste;
+                    } else {
+                        serialPort->write("DENIED\n");
+                        logAccessEvent(tagId, nom + " (inactif)", false);
+                        qDebug() << "Acces refuse - inactif:" << nom;
+                    }
+                } else {
+                    serialPort->write("DENIED\n");
+                    logAccessEvent(tagId, "INCONNU", false);
+                    qDebug() << "Acces refuse - tag inconnu:" << tagId;
+                }
+            }
+
+        } else if (line == "DOOR_OPENED") {
+            qDebug() << "Porte ouverte.";
+        } else if (line == "ACCESS_DENIED") {
+            qDebug() << "Arduino: acces refuse.";
+        } else if (line == "TIMEOUT") {
+            qDebug() << "Arduino: timeout.";
+        } else if (line == "RFID_READY") {
+            qDebug() << "Arduino: pret.";
+        }
+    }
+}
+
+// ============================================================
+// RFID — Log every access attempt to ACCESS_LOG table
+// ============================================================
+void MainWindow::logAccessEvent(const QString& tagId,
+                                const QString& nom,
+                                bool granted)
+{
+    QSqlQuery q;
+    q.prepare("INSERT INTO ACCESS_LOG (ID, TAG_ID, NOM, GRANTED) "
+              "VALUES (access_log_seq.NEXTVAL, :tag, :nom, :granted)");
+    q.bindValue(":tag",     tagId);
+    q.bindValue(":nom",     nom);
+    q.bindValue(":granted", granted ? 1 : 0);
+    if (!q.exec())
+        qDebug() << "logAccessEvent erreur:" << q.lastError().text();
 }

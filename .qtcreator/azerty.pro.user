@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 18.0.2, 2026-03-06T06:39:31. -->
+<!-- Written by QtCreator 18.0.2, 2026-04-30T17:07:31. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -85,6 +85,10 @@
     <valuelist type="QVariantList" key="ClangTools.SelectedFiles"/>
     <valuelist type="QVariantList" key="ClangTools.SuppressedDiagnostics"/>
     <value type="bool" key="ClangTools.UseGlobalSettings">true</value>
+   </valuemap>
+   <valuemap type="QVariantMap" key="PESettingsAspect">
+    <value type="QByteArray" key="EnvironmentId">{4b7992b5-7368-4966-ab1b-b603b7b2c98f}</value>
+    <value type="bool" key="PESettingsAspect.UseGlobalSettings">true</value>
    </valuemap>
    <value type="int" key="RcSync">0</value>
   </valuemap>

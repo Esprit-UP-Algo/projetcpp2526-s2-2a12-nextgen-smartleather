@@ -6,6 +6,7 @@
 #include <QString>
 #include <QDate>
 #include <QtSql/QSqlDatabase>
+#include <QtSerialPort/QSerialPort>
 
 class QLabel;
 class QPlainTextEdit;
@@ -24,6 +25,15 @@ struct Supplier {
     QString notes; // notes supplémentaires
     QDate dateAjout;
     int nombreUtilisations = 0;
+};
+
+// Structure pour un tag RFID
+struct RFIDTag {
+    QString tagId;
+    QString userName;
+    QString accessLevel;
+    bool authorized;
+    QDate dateAdded;
 };
 
 QT_BEGIN_NAMESPACE
@@ -45,6 +55,12 @@ private:
     QVector<Supplier> suppliers; // Liste des fournisseurs
     Supplier currentSupplier; // fournisseur actuellement chargé
     QString currentSupplierId; // id du fournisseur actuellement chargé (vide si aucun)
+   
+    QSerialPort *serialPort;  
+    QString serialBuffer;          
+    bool rfidBindingMode = false;  
+    QString rfidBindingTarget;
+    QVector<RFIDTag> rfidTags;
     
     // Fonctions CRUD
     bool addSupplier(const Supplier& supplier);
@@ -62,6 +78,13 @@ private:
     QVector<Supplier> sortByDelai();
     Supplier* suggestBestSupplier();
     void displaySupplierHistory();
+    
+    // RFID functions
+    void setupSerialPort();
+    void handleSerialData();
+    void logAccessEvent(const QString& tagId, const QString& nom, bool granted);
+
+    
     // UI for suppliers statistics page
     QWidget *pageSuppStats = nullptr;
     QLabel *lblTotalStatsPage = nullptr;

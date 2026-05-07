@@ -88,6 +88,7 @@ public:
     QPushButton *btn_tab_supp_update;
     QPushButton *btn_tab_supp_delete;
     QPushButton *btn_tab_supp_list;
+    QPushButton *btn_tab_supp_stats;
     QSpacerItem *horizontalSpacer_supp;
     QStackedWidget *stackedWidget_suppliers;
     QWidget *page_supp_add;
@@ -97,6 +98,8 @@ public:
     QLabel *lblFormTitle_add;
     QFrame *frame_inputs_add;
     QFormLayout *formLayout_add_supp;
+    QLabel *label_supp_id;
+    QLineEdit *txtId;
     QLabel *label_supp_1;
     QLineEdit *txtNom;
     QLabel *label_supp_2;
@@ -183,12 +186,14 @@ public:
     QLineEdit *txtFilterStatut;
     QPushButton *btnRechercher;
     QPushButton *btnRinitialiserFiltres;
+    QComboBox *comboTriSuppliers;
     QTableWidget *tableFournisseurs;
     QHBoxLayout *actionsTableLayout;
     QLabel *lblSelectedSupplier;
     QSpacerItem *horizontalSpacer_actions;
     QPushButton *btnModifierDuTableau;
     QPushButton *btnSupprimerDuTableau;
+    QPushButton *btnExportSuppliersPDF;
     QHBoxLayout *statsLayout;
     QFrame *frame_stat_total;
     QVBoxLayout *vboxLayout;
@@ -790,6 +795,12 @@ public:
 
         navLayout_suppliers->addWidget(btn_tab_supp_list);
 
+        btn_tab_supp_stats = new QPushButton(top_nav_suppliers);
+        btn_tab_supp_stats->setObjectName("btn_tab_supp_stats");
+        btn_tab_supp_stats->setCheckable(true);
+
+        navLayout_suppliers->addWidget(btn_tab_supp_stats);
+
         horizontalSpacer_supp = new QSpacerItem(40, 20, QSizePolicy::Policy::Expanding, QSizePolicy::Policy::Minimum);
 
         navLayout_suppliers->addItem(horizontalSpacer_supp);
@@ -819,102 +830,112 @@ public:
         formLayout_add_supp = new QFormLayout(frame_inputs_add);
         formLayout_add_supp->setSpacing(10);
         formLayout_add_supp->setObjectName("formLayout_add_supp");
+        label_supp_id = new QLabel(frame_inputs_add);
+        label_supp_id->setObjectName("label_supp_id");
+
+        formLayout_add_supp->setWidget(0, QFormLayout::LabelRole, label_supp_id);
+
+        txtId = new QLineEdit(frame_inputs_add);
+        txtId->setObjectName("txtId");
+
+        formLayout_add_supp->setWidget(0, QFormLayout::FieldRole, txtId);
+
         label_supp_1 = new QLabel(frame_inputs_add);
         label_supp_1->setObjectName("label_supp_1");
 
-        formLayout_add_supp->setWidget(0, QFormLayout::LabelRole, label_supp_1);
+        formLayout_add_supp->setWidget(1, QFormLayout::LabelRole, label_supp_1);
 
         txtNom = new QLineEdit(frame_inputs_add);
         txtNom->setObjectName("txtNom");
 
-        formLayout_add_supp->setWidget(0, QFormLayout::FieldRole, txtNom);
+        formLayout_add_supp->setWidget(1, QFormLayout::FieldRole, txtNom);
 
         label_supp_2 = new QLabel(frame_inputs_add);
         label_supp_2->setObjectName("label_supp_2");
 
-        formLayout_add_supp->setWidget(1, QFormLayout::LabelRole, label_supp_2);
+        formLayout_add_supp->setWidget(2, QFormLayout::LabelRole, label_supp_2);
 
         txtType = new QLineEdit(frame_inputs_add);
         txtType->setObjectName("txtType");
 
-        formLayout_add_supp->setWidget(1, QFormLayout::FieldRole, txtType);
+        formLayout_add_supp->setWidget(2, QFormLayout::FieldRole, txtType);
 
         label_supp_3 = new QLabel(frame_inputs_add);
         label_supp_3->setObjectName("label_supp_3");
 
-        formLayout_add_supp->setWidget(2, QFormLayout::LabelRole, label_supp_3);
+        formLayout_add_supp->setWidget(3, QFormLayout::LabelRole, label_supp_3);
 
         txtAdresse = new QLineEdit(frame_inputs_add);
         txtAdresse->setObjectName("txtAdresse");
 
-        formLayout_add_supp->setWidget(2, QFormLayout::FieldRole, txtAdresse);
+        formLayout_add_supp->setWidget(3, QFormLayout::FieldRole, txtAdresse);
 
         label_supp_4 = new QLabel(frame_inputs_add);
         label_supp_4->setObjectName("label_supp_4");
 
-        formLayout_add_supp->setWidget(3, QFormLayout::LabelRole, label_supp_4);
+        formLayout_add_supp->setWidget(4, QFormLayout::LabelRole, label_supp_4);
 
         txtTelephone = new QLineEdit(frame_inputs_add);
         txtTelephone->setObjectName("txtTelephone");
 
-        formLayout_add_supp->setWidget(3, QFormLayout::FieldRole, txtTelephone);
+        formLayout_add_supp->setWidget(4, QFormLayout::FieldRole, txtTelephone);
 
         label_supp_5 = new QLabel(frame_inputs_add);
         label_supp_5->setObjectName("label_supp_5");
 
-        formLayout_add_supp->setWidget(4, QFormLayout::LabelRole, label_supp_5);
+        formLayout_add_supp->setWidget(5, QFormLayout::LabelRole, label_supp_5);
 
         txtEmail = new QLineEdit(frame_inputs_add);
         txtEmail->setObjectName("txtEmail");
 
-        formLayout_add_supp->setWidget(4, QFormLayout::FieldRole, txtEmail);
+        formLayout_add_supp->setWidget(5, QFormLayout::FieldRole, txtEmail);
 
         label_supp_6 = new QLabel(frame_inputs_add);
         label_supp_6->setObjectName("label_supp_6");
 
-        formLayout_add_supp->setWidget(5, QFormLayout::LabelRole, label_supp_6);
+        formLayout_add_supp->setWidget(6, QFormLayout::LabelRole, label_supp_6);
 
         spinDelai = new QSpinBox(frame_inputs_add);
         spinDelai->setObjectName("spinDelai");
         spinDelai->setMinimum(1);
         spinDelai->setMaximum(365);
 
-        formLayout_add_supp->setWidget(5, QFormLayout::FieldRole, spinDelai);
+        formLayout_add_supp->setWidget(6, QFormLayout::FieldRole, spinDelai);
 
         label_supp_7 = new QLabel(frame_inputs_add);
         label_supp_7->setObjectName("label_supp_7");
 
-        formLayout_add_supp->setWidget(6, QFormLayout::LabelRole, label_supp_7);
+        formLayout_add_supp->setWidget(7, QFormLayout::LabelRole, label_supp_7);
 
         spinPrix = new QDoubleSpinBox(frame_inputs_add);
         spinPrix->setObjectName("spinPrix");
         spinPrix->setMinimum(0.010000000000000);
         spinPrix->setMaximum(999999.989999999990687);
 
-        formLayout_add_supp->setWidget(6, QFormLayout::FieldRole, spinPrix);
+        formLayout_add_supp->setWidget(7, QFormLayout::FieldRole, spinPrix);
 
         label_supp_8 = new QLabel(frame_inputs_add);
         label_supp_8->setObjectName("label_supp_8");
 
-        formLayout_add_supp->setWidget(7, QFormLayout::LabelRole, label_supp_8);
+        formLayout_add_supp->setWidget(8, QFormLayout::LabelRole, label_supp_8);
 
         comboStatut = new QComboBox(frame_inputs_add);
         comboStatut->addItem(QString());
         comboStatut->addItem(QString());
         comboStatut->setObjectName("comboStatut");
 
-        formLayout_add_supp->setWidget(7, QFormLayout::FieldRole, comboStatut);
+        formLayout_add_supp->setWidget(8, QFormLayout::FieldRole, comboStatut);
 
         label_supp_notes = new QLabel(frame_inputs_add);
         label_supp_notes->setObjectName("label_supp_notes");
 
-        formLayout_add_supp->setWidget(8, QFormLayout::LabelRole, label_supp_notes);
+        formLayout_add_supp->setWidget(9, QFormLayout::LabelRole, label_supp_notes);
 
         txtNotes = new QPlainTextEdit(frame_inputs_add);
         txtNotes->setObjectName("txtNotes");
         txtNotes->setMaximumHeight(80);
 
-        formLayout_add_supp->setWidget(8, QFormLayout::FieldRole, txtNotes);
+        formLayout_add_supp->setWidget(9, QFormLayout::FieldRole, txtNotes);
 
 
         layout_form_add->addWidget(frame_inputs_add);
@@ -1237,6 +1258,18 @@ public:
 
         filterLayout->addWidget(btnRinitialiserFiltres);
 
+        comboTriSuppliers = new QComboBox(frame_list_supp);
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->addItem(QString());
+        comboTriSuppliers->setObjectName("comboTriSuppliers");
+
+        filterLayout->addWidget(comboTriSuppliers);
+
 
         layout_list_supp->addLayout(filterLayout);
 
@@ -1269,6 +1302,11 @@ public:
         btnSupprimerDuTableau->setEnabled(false);
 
         actionsTableLayout->addWidget(btnSupprimerDuTableau);
+
+        btnExportSuppliersPDF = new QPushButton(frame_list_supp);
+        btnExportSuppliersPDF->setObjectName("btnExportSuppliersPDF");
+
+        actionsTableLayout->addWidget(btnExportSuppliersPDF);
 
 
         layout_list_supp->addLayout(actionsTableLayout);
@@ -2987,9 +3025,14 @@ public:
         btn_tab_supp_update->setText(QCoreApplication::translate("MainWindow", "Modifier un Fournisseur", nullptr));
         btn_tab_supp_delete->setText(QCoreApplication::translate("MainWindow", "Supprimer un Fournisseur", nullptr));
         btn_tab_supp_list->setText(QCoreApplication::translate("MainWindow", "Liste / Stats", nullptr));
+        btn_tab_supp_stats->setText(QCoreApplication::translate("MainWindow", "Statistiques Fournisseurs", nullptr));
         frame_add_supp->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: white; border-radius: 10px; border: 1px solid #F2D2B5;", nullptr));
         lblFormTitle_add->setText(QCoreApplication::translate("MainWindow", "Ajouter un Nouveau Fournisseur", nullptr));
         lblFormTitle_add->setStyleSheet(QCoreApplication::translate("MainWindow", "font-size: 16px; font-weight: bold; color: #3D362D; margin-bottom: 15px;", nullptr));
+        label_supp_id->setText(QCoreApplication::translate("MainWindow", "ID Fournisseur *", nullptr));
+        label_supp_id->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
+        txtId->setPlaceholderText(QCoreApplication::translate("MainWindow", "Ex: 1024", nullptr));
+        txtId->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
         label_supp_1->setText(QCoreApplication::translate("MainWindow", "Nom *", nullptr));
         label_supp_1->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
         txtNom->setPlaceholderText(QCoreApplication::translate("MainWindow", "Ex: Fournisseur ABC Sarl", nullptr));
@@ -3013,7 +3056,7 @@ public:
         label_supp_6->setText(QCoreApplication::translate("MainWindow", "D\303\251lai de livraison (jours) *", nullptr));
         label_supp_6->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
         spinDelai->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
-        label_supp_7->setText(QCoreApplication::translate("MainWindow", "Prix moyen (DH) *", nullptr));
+        label_supp_7->setText(QCoreApplication::translate("MainWindow", "Prix moyen (TND) *", nullptr));
         label_supp_7->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
         spinPrix->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
         label_supp_8->setText(QCoreApplication::translate("MainWindow", "Statut *", nullptr));
@@ -3062,7 +3105,7 @@ public:
         label_mod_6->setText(QCoreApplication::translate("MainWindow", "D\303\251lai de livraison (jours)", nullptr));
         label_mod_6->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
         spinDelaiMod->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
-        label_mod_7->setText(QCoreApplication::translate("MainWindow", "Prix moyen (DH)", nullptr));
+        label_mod_7->setText(QCoreApplication::translate("MainWindow", "Prix moyen (TND)", nullptr));
         label_mod_7->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #3D362D; font-weight: bold;", nullptr));
         spinPrixMod->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
         label_mod_8->setText(QCoreApplication::translate("MainWindow", "Statut", nullptr));
@@ -3110,6 +3153,15 @@ public:
         btnRechercher->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #C68E65; color: white; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold;", nullptr));
         btnRinitialiserFiltres->setText(QCoreApplication::translate("MainWindow", "R\303\211INITIALISER", nullptr));
         btnRinitialiserFiltres->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #F2D2B5; color: #3D362D; border: none; padding: 8px 15px; border-radius: 5px;", nullptr));
+        comboTriSuppliers->setItemText(0, QCoreApplication::translate("MainWindow", "Aucun tri", nullptr));
+        comboTriSuppliers->setItemText(1, QCoreApplication::translate("MainWindow", "Trier par prix", nullptr));
+        comboTriSuppliers->setItemText(2, QCoreApplication::translate("MainWindow", "Trier par d\303\251lai", nullptr));
+        comboTriSuppliers->setItemText(3, QCoreApplication::translate("MainWindow", "Prix croissant", nullptr));
+        comboTriSuppliers->setItemText(4, QCoreApplication::translate("MainWindow", "Prix d\303\251croissant", nullptr));
+        comboTriSuppliers->setItemText(5, QCoreApplication::translate("MainWindow", "D\303\251lai croissant", nullptr));
+        comboTriSuppliers->setItemText(6, QCoreApplication::translate("MainWindow", "D\303\251lai d\303\251croissant", nullptr));
+
+        comboTriSuppliers->setStyleSheet(QCoreApplication::translate("MainWindow", "border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;", nullptr));
         tableFournisseurs->setProperty("horizontalHeaderLabels", QVariant(QStringList{
             QCoreApplication::translate("MainWindow", "ID", nullptr),
             QCoreApplication::translate("MainWindow", "Nom", nullptr),
@@ -3126,6 +3178,8 @@ public:
         btnModifierDuTableau->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #C68E65; color: white; border: none; padding: 8px 20px; border-radius: 5px; font-weight: bold;", nullptr));
         btnSupprimerDuTableau->setText(QCoreApplication::translate("MainWindow", "SUPPRIMER", nullptr));
         btnSupprimerDuTableau->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #d9534f; color: white; border: none; padding: 8px 20px; border-radius: 5px; font-weight: bold;", nullptr));
+        btnExportSuppliersPDF->setText(QCoreApplication::translate("MainWindow", "Exporter PDF", nullptr));
+        btnExportSuppliersPDF->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #5cb85c; color: white; border: none; padding: 8px 20px; border-radius: 5px; font-weight: bold;", nullptr));
         frame_stat_total->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #FCF9F6; border: 1px solid #F2D2B5; border-radius: 5px; padding: 10px;", nullptr));
         lblStatTotalLabel->setText(QCoreApplication::translate("MainWindow", "Total Fournisseurs", nullptr));
         lblStatTotalLabel->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #666; font-weight: bold;", nullptr));
@@ -3139,7 +3193,7 @@ public:
         frame_stat_prix->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #FCF9F6; border: 1px solid #F2D2B5; border-radius: 5px; padding: 10px;", nullptr));
         lblStatPrixLabel->setText(QCoreApplication::translate("MainWindow", "Prix Moyen", nullptr));
         lblStatPrixLabel->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #666; font-weight: bold;", nullptr));
-        lblStatPrix->setText(QCoreApplication::translate("MainWindow", "0.00 DH", nullptr));
+        lblStatPrix->setText(QCoreApplication::translate("MainWindow", "0.00 TND", nullptr));
         lblStatPrix->setStyleSheet(QCoreApplication::translate("MainWindow", "color: #0275d8; font-size: 18px; font-weight: bold;", nullptr));
         frame_stat_delai->setStyleSheet(QCoreApplication::translate("MainWindow", "background-color: #FCF9F6; border: 1px solid #F2D2B5; border-radius: 5px; padding: 10px;", nullptr));
         lblStatDelaiLabel->setText(QCoreApplication::translate("MainWindow", "D\303\251lai Moyen", nullptr));

@@ -487,6 +487,16 @@
                   </widget>
                  </item>
                  <item>
+                  <widget class="QPushButton" name="btn_tab_supp_stats">
+                   <property name="text">
+                    <string>Statistiques Fournisseurs</string>
+                   </property>
+                   <property name="checkable">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
                   <spacer name="horizontalSpacer_supp">
                    <property name="orientation">
                     <enum>Qt::Orientation::Horizontal</enum>
@@ -547,6 +557,26 @@
                          <number>10</number>
                         </property>
                         <item row="0" column="0">
+                         <widget class="QLabel" name="label_supp_id">
+                          <property name="text">
+                           <string>ID Fournisseur *</string>
+                          </property>
+                          <property name="styleSheet">
+                           <string>color: #3D362D; font-weight: bold;</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="0" column="1">
+                         <widget class="QLineEdit" name="txtId">
+                          <property name="placeholderText">
+                           <string>Ex: 1024</string>
+                          </property>
+                          <property name="styleSheet">
+                           <string>border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="1" column="0">
                          <widget class="QLabel" name="label_supp_1">
                           <property name="text">
                            <string>Nom *</string>
@@ -556,7 +586,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="0" column="1">
+                        <item row="1" column="1">
                          <widget class="QLineEdit" name="txtNom">
                           <property name="placeholderText">
                            <string>Ex: Fournisseur ABC Sarl</string>
@@ -566,7 +596,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="1" column="0">
+                        <item row="2" column="0">
                          <widget class="QLabel" name="label_supp_2">
                           <property name="text">
                            <string>Type *</string>
@@ -576,7 +606,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="1" column="1">
+                        <item row="2" column="1">
                          <widget class="QLineEdit" name="txtType">
                           <property name="placeholderText">
                            <string>Ex: Cuir, Textile, Colle...</string>
@@ -586,7 +616,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="2" column="0">
+                        <item row="3" column="0">
                          <widget class="QLabel" name="label_supp_3">
                           <property name="text">
                            <string>Adresse *</string>
@@ -596,7 +626,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="2" column="1">
+                        <item row="3" column="1">
                          <widget class="QLineEdit" name="txtAdresse">
                           <property name="placeholderText">
                            <string>Adresse complète</string>
@@ -606,7 +636,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="3" column="0">
+                        <item row="4" column="0">
                          <widget class="QLabel" name="label_supp_4">
                           <property name="text">
                            <string>Téléphone *</string>
@@ -616,7 +646,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="3" column="1">
+                        <item row="4" column="1">
                          <widget class="QLineEdit" name="txtTelephone">
                           <property name="placeholderText">
                            <string>Ex: +212 5XX-XXXXXX</string>
@@ -626,7 +656,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="4" column="0">
+                        <item row="5" column="0">
                          <widget class="QLabel" name="label_supp_5">
                           <property name="text">
                            <string>Email *</string>
@@ -636,7 +666,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="4" column="1">
+                        <item row="5" column="1">
                          <widget class="QLineEdit" name="txtEmail">
                           <property name="placeholderText">
                            <string>contact@fournisseur.com</string>
@@ -646,7 +676,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="5" column="0">
+                        <item row="6" column="0">
                          <widget class="QLabel" name="label_supp_6">
                           <property name="text">
                            <string>Délai de livraison (jours) *</string>
@@ -656,7 +686,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="5" column="1">
+                        <item row="6" column="1">
                          <widget class="QSpinBox" name="spinDelai">
                           <property name="minimum">
                            <number>1</number>
@@ -669,7 +699,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="6" column="0">
+                        <item row="7" column="0">
                          <widget class="QLabel" name="label_supp_7">
                           <property name="text">
                            <string>Prix moyen (TND) *</string>
@@ -679,7 +709,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="6" column="1">
+                        <item row="7" column="1">
                          <widget class="QDoubleSpinBox" name="spinPrix">
                           <property name="minimum">
                            <double>0.010000000000000</double>
@@ -692,7 +722,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="7" column="0">
+                        <item row="8" column="0">
                          <widget class="QLabel" name="label_supp_8">
                           <property name="text">
                            <string>Statut *</string>
@@ -702,7 +732,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="7" column="1">
+                        <item row="8" column="1">
                          <widget class="QComboBox" name="comboStatut">
                           <item>
                            <property name="text">
@@ -719,7 +749,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="8" column="0">
+                        <item row="9" column="0">
                          <widget class="QLabel" name="label_supp_notes">
                           <property name="text">
                            <string>Notes</string>
@@ -729,7 +759,7 @@
                           </property>
                          </widget>
                         </item>
-                        <item row="8" column="1">
+                        <item row="9" column="1">
                          <widget class="QPlainTextEdit" name="txtNotes">
                           <property name="placeholderText">
                            <string>Informations supplémentaires...</string>
@@ -1372,6 +1402,48 @@
                          </property>
                         </widget>
                        </item>
+                                             <item>
+                                                <widget class="QComboBox" name="comboTriSuppliers">
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Aucun tri</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Trier par prix</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Trier par délai</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Prix croissant</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Prix décroissant</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Délai croissant</string>
+                                                    </property>
+                                                 </item>
+                                                 <item>
+                                                    <property name="text">
+                                                     <string>Délai décroissant</string>
+                                                    </property>
+                                                 </item>
+                                                 <property name="styleSheet">
+                                                    <string>border: 1px solid #F2D2B5; border-radius: 5px; padding: 8px; background-color: #FCF9F6;</string>
+                                                 </property>
+                                                </widget>
+                                             </item>
                       </layout>
                      </item>
                      <item>
@@ -1450,6 +1522,16 @@
                          </property>
                         </widget>
                        </item>
+                           <item>
+                            <widget class="QPushButton" name="btnExportSuppliersPDF">
+                             <property name="text">
+                              <string>Exporter PDF</string>
+                             </property>
+                             <property name="styleSheet">
+                              <string>background-color: #5cb85c; color: white; border: none; padding: 8px 20px; border-radius: 5px; font-weight: bold;</string>
+                             </property>
+                            </widget>
+                           </item>
                       </layout>
                      </item>
                      <item>
