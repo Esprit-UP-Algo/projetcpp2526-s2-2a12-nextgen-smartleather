@@ -1,0 +1,527 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>EmployeWindow</class>
+ <widget class="QMainWindow" name="EmployeWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1180</width>
+    <height>860</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Gestion des Employes</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QMainWindow { background-color: #FCF9F6; }
+    QWidget#centralwidget { background-color: #FCF9F6; }
+    QFrame#headerBar {
+      background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                  stop:0 #3D362D, stop:1 #5A3B2E);
+      border-bottom: 1px solid #2C241D;
+    }
+    QLabel#titleLabel {
+      color: #F7E7D6;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+    QLabel#subtitleLabel {
+      color: #E9C9A8;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    QPushButton {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-weight: 700;
+      color: white;
+      background-color: #8B4513;
+    }
+    QPushButton:hover { background-color: #4E2C23; }
+    QPushButton:checked { background-color: #C68E65; color: white; }
+    QPushButton#btnDelete { background-color: #8B0000; }
+    QPushButton#btnDelete:hover { background-color: #650000; }
+    QPushButton#btnRefresh { background-color: #C68E65; }
+    QPushButton#btnRefresh:hover { background-color: #8B4513; }
+    QFrame#card {
+      background-color: white;
+      border: 1px solid #E5D2BF;
+      border-radius: 18px;
+    }
+    QLabel {
+      color: #4E2C23;
+      font-weight: 600;
+    }
+    QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox {
+      background-color: #FFFCFA;
+      border: 1px solid #DDC6B0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      min-height: 34px;
+      color: #3D362D;
+    }
+    QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDoubleSpinBox:focus {
+      border: 2px solid #C68E65;
+      background-color: white;
+    }
+    QTableWidget {
+      background-color: white;
+      alternate-background-color: #FFF9F4;
+      gridline-color: #E9D8C6;
+      selection-background-color: #EFCDAF;
+      selection-color: #4E2C23;
+      border: none;
+    }
+    QHeaderView::section {
+      background-color: #3D362D;
+      color: #F2D2B5;
+      padding: 8px;
+      border: none;
+      font-weight: 700;
+    }
+    QStackedWidget { background: transparent; }
+    QGroupBox {
+      border: 1px solid #E5D2BF;
+      border-radius: 14px;
+      margin-top: 14px;
+      font-weight: 700;
+      color: #4E2C23;
+    }
+    QGroupBox::title {
+      subcontrol-origin: margin;
+      left: 12px;
+      padding: 0 6px;
+    }
+   </string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="rootLayout">
+    <property name="spacing">
+     <number>14</number>
+    </property>
+    <property name="leftMargin">
+     <number>18</number>
+    </property>
+    <property name="topMargin">
+     <number>18</number>
+    </property>
+    <property name="rightMargin">
+     <number>18</number>
+    </property>
+    <property name="bottomMargin">
+     <number>18</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="headerBar">
+      <layout class="QHBoxLayout" name="headerLayout">
+       <property name="leftMargin">
+        <number>22</number>
+       </property>
+       <property name="topMargin">
+        <number>18</number>
+       </property>
+       <property name="rightMargin">
+        <number>22</number>
+       </property>
+       <property name="bottomMargin">
+        <number>18</number>
+       </property>
+       <item>
+        <layout class="QVBoxLayout" name="headerTextLayout">
+         <item>
+          <widget class="QLabel" name="titleLabel">
+           <property name="text">
+            <string>Gestion des Employes</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="subtitleLabel">
+           <property name="text">
+            <string>Ajout, modification, suppression et consultation des employes.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QFrame" name="card">
+      <layout class="QVBoxLayout" name="cardLayout">
+       <property name="leftMargin">
+        <number>16</number>
+       </property>
+       <property name="topMargin">
+        <number>16</number>
+       </property>
+       <property name="rightMargin">
+        <number>16</number>
+       </property>
+       <property name="bottomMargin">
+        <number>16</number>
+       </property>
+       <property name="spacing">
+        <number>14</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="tabLayout">
+         <item>
+          <widget class="QPushButton" name="btnTabAdd">
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Ajouter</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnTabEdit">
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Modifier</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnTabDelete">
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Supprimer</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnTabList">
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Liste / Stats</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="tabSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QStackedWidget" name="stackedWidget">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="page_add">
+          <layout class="QVBoxLayout" name="pageAddLayout">
+           <item>
+            <widget class="QGroupBox" name="groupBoxAdd">
+             <property name="title">
+              <string>Nouvel employe</string>
+             </property>
+             <layout class="QFormLayout" name="formAdd">
+              <item row="0" column="0">
+               <widget class="QLabel" name="labelCinAdd">
+                <property name="text"><string>CIN *</string></property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLineEdit" name="cinAdd"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="labelNameAdd">
+                <property name="text"><string>Nom *</string></property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLineEdit" name="nameAdd"/>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="labelAddressAdd">
+                <property name="text"><string>Adresse</string></property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QLineEdit" name="addressAdd"/>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="labelPhoneAdd">
+                <property name="text"><string>Telephone</string></property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QLineEdit" name="phoneAdd"/>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="labelDateAdd">
+                <property name="text"><string>Date d'embauche</string></property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QDateEdit" name="dateAdd">
+                <property name="calendarPopup"><bool>true</bool></property>
+                <property name="date">
+                 <date>
+                  <year>2026</year>
+                  <month>5</month>
+                  <day>7</day>
+                 </date>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0">
+               <widget class="QLabel" name="labelPosteAdd">
+                <property name="text"><string>Poste</string></property>
+               </widget>
+              </item>
+              <item row="5" column="1">
+               <widget class="QComboBox" name="posteAdd">
+                <item><property name="text"><string>Employe</string></property></item>
+                <item><property name="text"><string>Manager</string></property></item>
+                <item><property name="text"><string>Technicien</string></property></item>
+                <item><property name="text"><string>RH</string></property></item>
+               </widget>
+              </item>
+              <item row="6" column="0">
+               <widget class="QLabel" name="labelSalaryAdd">
+                <property name="text"><string>Salaire</string></property>
+               </widget>
+              </item>
+              <item row="6" column="1">
+               <widget class="QDoubleSpinBox" name="salaryAdd">
+                <property name="maximum"><double>1000000.000000000000000</double></property>
+                <property name="decimals"><number>2</number></property>
+                <property name="singleStep"><double>10.000000000000000</double></property>
+               </widget>
+              </item>
+              <item row="7" column="0">
+               <widget class="QLabel" name="labelSexAdd">
+                <property name="text"><string>Sexe</string></property>
+               </widget>
+              </item>
+              <item row="7" column="1">
+               <widget class="QComboBox" name="sexAdd">
+                <item><property name="text"><string>Homme</string></property></item>
+                <item><property name="text"><string>Femme</string></property></item>
+               </widget>
+              </item>
+              <item row="8" column="0">
+               <widget class="QPushButton" name="btnAdd">
+                <property name="text"><string>Enregistrer</string></property>
+               </widget>
+              </item>
+              <item row="8" column="1">
+               <widget class="QPushButton" name="btnResetAdd">
+                <property name="text"><string>Reinitialiser</string></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_edit">
+          <layout class="QVBoxLayout" name="pageEditLayout">
+           <item>
+            <widget class="QGroupBox" name="groupBoxEdit">
+             <property name="title">
+              <string>Modifier un employe</string>
+             </property>
+             <layout class="QVBoxLayout" name="editOuterLayout">
+              <item>
+               <layout class="QHBoxLayout" name="searchLayout">
+                <item>
+                 <widget class="QLineEdit" name="cinSearch">
+                  <property name="placeholderText"><string>CIN a modifier</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnLoad">
+                  <property name="text"><string>Charger</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QFormLayout" name="formEdit">
+                <item row="0" column="0">
+                 <widget class="QLabel" name="labelNameEdit"><property name="text"><string>Nom</string></property></widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QLineEdit" name="nameEdit"/>
+                </item>
+                <item row="1" column="0">
+                 <widget class="QLabel" name="labelPhoneEdit"><property name="text"><string>Telephone</string></property></widget>
+                </item>
+                <item row="1" column="1">
+                 <widget class="QLineEdit" name="phoneEdit"/>
+                </item>
+                <item row="2" column="0">
+                 <widget class="QLabel" name="labelSalaryEdit"><property name="text"><string>Salaire</string></property></widget>
+                </item>
+                <item row="2" column="1">
+                 <widget class="QDoubleSpinBox" name="salaryEdit">
+                  <property name="maximum"><double>1000000.000000000000000</double></property>
+                  <property name="decimals"><number>2</number></property>
+                  <property name="singleStep"><double>10.000000000000000</double></property>
+                 </widget>
+                </item>
+                <item row="3" column="0">
+                 <widget class="QPushButton" name="btnUpdate">
+                  <property name="text"><string>Mettre a jour</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_delete">
+          <layout class="QVBoxLayout" name="pageDeleteLayout">
+           <item>
+            <widget class="QGroupBox" name="groupBoxDelete">
+             <property name="title">
+              <string>Supprimer un employe</string>
+             </property>
+             <layout class="QHBoxLayout" name="deleteLayout">
+              <item>
+               <widget class="QLineEdit" name="cinDelete">
+                <property name="placeholderText"><string>CIN a supprimer</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btnDelete">
+                <property name="text"><string>Supprimer</string></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_list">
+          <layout class="QVBoxLayout" name="pageListLayout">
+           <item>
+            <widget class="QGroupBox" name="groupBoxList">
+             <property name="title">
+              <string>Liste des employes</string>
+             </property>
+             <layout class="QVBoxLayout" name="listLayout">
+              <item>
+               <widget class="QTableWidget" name="tableEmployees">
+                <column>
+                 <property name="text"><string>CIN</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Nom</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Poste</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Adresse</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Telephone</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Date embauche</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Salaire</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Statut</string></property>
+                </column>
+                <column>
+                 <property name="text"><string>Sexe</string></property>
+                </column>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="statsLayout">
+                <item>
+                 <widget class="QLabel" name="labelTotalText">
+                  <property name="text"><string>Total:</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelTotal">
+                  <property name="text"><string>0</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelAverageText">
+                  <property name="text"><string>Salaire moyen:</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelAverageSalary">
+                  <property name="text"><string>0.00</string></property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="statsSpacer">
+                  <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                  <property name="sizeHint" stdset="0">
+                   <size><width>40</width><height>20</height></size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnRefresh">
+                  <property name="text"><string>Actualiser</string></property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+  <resources/>
+  <connections/>
+</ui>
