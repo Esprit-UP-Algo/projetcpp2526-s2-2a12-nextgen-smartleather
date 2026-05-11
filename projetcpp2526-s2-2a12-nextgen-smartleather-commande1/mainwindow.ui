@@ -1,0 +1,2152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>1657</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>NextGen - Leader Factory Management</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QMainWindow { background-color: #FCF9F6; }
+    
+    #sidebar { background-color: #3D362D; border-right: 1px solid #4E2C23; }
+    #sidebar QPushButton { background-color: transparent; color: #F2D2B5; text-align: left; padding: 15px 20px; border: none; font-weight: bold; text-transform: uppercase; font-size: 12px; }
+    #sidebar QPushButton:hover { background-color: #4E2C23; color: #C68E65; border-left: 4px solid #C68E65; }
+    
+    #top_nav { background-color: white; border-bottom: 2px solid #F2D2B5; }
+    #top_nav QPushButton { background-color: transparent; border: none; padding: 8px 12px; color: #8B4513; font-size: 12px; font-weight: 600; border-radius: 6px; margin: 3px; }
+    #top_nav QPushButton:hover { background-color: #FFF0E0; color: #4E2C23; }
+    #top_nav QPushButton:checked { background-color: #C68E65; color: white; }
+    
+   #form_container, #table_container, #update_container, #innov_container { background-color: white; border: 1px solid #F2D2B5; border-radius: 15px; margin: 20px; }
+    
+    QLabel { color: #4E2C23; font-size: 13px; font-weight: bold; }
+    QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit { 
+        background-color: #FFFCFA; border: 1px solid #E0D0C0; padding: 10px; border-radius: 6px; color: #3D362D; font-size: 13px;
+    }
+    QComboBox {
+        background-color: white; border: 1px solid #D2B48C; padding: 10px; border-radius: 6px; color: #000000; font-size: 13px;
+    }
+    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {
+        border: 2px solid #C68E65; background-color: white;
+    }
+    QComboBox QAbstractItemView { background-color: white; color: black; selection-background-color: #C68E65; selection-color: white; border: 1px solid #D2B48C; }
+    
+    #btn_valider, #btn_update_confirm, #btn_search_update { background-color: #8B4513; color: white; border-radius: 6px; padding: 10px 30px; font-weight: bold; border: none; }
+    #btn_valider:hover, #btn_update_confirm:hover, #btn_search_update:hover { background-color: #4E2C23; }
+    
+    #btn_delete_action { background-color: #4E2C23; color: white; border-radius: 6px; padding: 10px 30px; font-weight: bold; }
+    #btn_delete_action:hover { background-color: #3D362D; }
+    
+    #btn_pdf { background-color: #C68E65; color: white; border-radius: 6px; padding: 8px 15px; font-weight: bold; border: none; }
+    #btn_pdf:hover { background-color: #8B4513; }
+
+    QTableWidget { background-color: white; color: #3D362D; gridline-color: #F2D2B5; border: none; alternate-background-color: #FFFCFA; selection-background-color: #F2D2B5; selection-color: #4E2C23; }
+    QHeaderView::section { background-color: #3D362D; color: #F2D2B5; padding: 8px; border: none; font-weight: bold; }
+
+    QCalendarWidget QWidget#qt_calendar_navigationbar {
+      background: transparent;
+    }
+    QCalendarWidget QToolButton {
+      color: #3D362D;
+      background-color: #FFF0E0;
+      border: 1px solid #E0D0C0;
+      border-radius: 10px;
+      padding: 6px 10px;
+      min-width: 34px;
+      font-weight: 600;
+    }
+    QCalendarWidget QToolButton:hover {
+      background-color: #F2D2B5;
+    }
+    QCalendarWidget QSpinBox,
+    QCalendarWidget QComboBox {
+      color: #3D362D;
+      background-color: #FFFCFA;
+      border: 1px solid #E0D0C0;
+      border-radius: 10px;
+      padding: 4px 8px;
+      font-weight: 600;
+    }
+    QCalendarWidget QAbstractItemView:enabled {
+      color: #3D362D;
+      background-color: white;
+      selection-background-color: #C68E65;
+      selection-color: white;
+    }
+    QCalendarWidget QTableView {
+      outline: 0;
+    }
+   </string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QHBoxLayout" name="mainLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="sidebar">
+      <property name="minimumSize">
+       <size>
+        <width>220</width>
+        <height>0</height>
+       </size>
+      </property>
+      <layout class="QVBoxLayout" name="sidebarLayout">
+       <item>
+        <widget class="QLabel" name="logo_label">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>150</height>
+          </size>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignmentFlag::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="factory_title">
+         <property name="styleSheet">
+          <string notr="true">color: #C68E65; font-size: 20px; font-weight: bold; padding: 10px 10px 30px 10px; letter-spacing: 1px;</string>
+         </property>
+         <property name="text">
+          <string>Leader Factory Management</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignmentFlag::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_nav_orders">
+         <property name="text">
+          <string>COMMANDES</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_nav_material">
+         <property name="text">
+          <string>Matières Premières</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_nav_employees">
+         <property name="text">
+          <string>EMPLOYÉS</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_nav_suppliers">
+         <property name="text">
+          <string>FOURNISSEUR</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_nav_ai">
+         <property name="text">
+          <string>ASSISTANT IA</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="vSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>0</width>
+           <height>0</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QVBoxLayout" name="contentArea">
+      <property name="spacing">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QFrame" name="top_nav">
+        <layout class="QHBoxLayout" name="navLayout">
+         <item>
+          <widget class="QPushButton" name="btn_tab_add">
+           <property name="text">
+            <string>Ajouter une commande</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_update">
+           <property name="text">
+            <string>Modifier une commande</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_delete">
+           <property name="text">
+            <string>Supprimer une commande</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_list">
+           <property name="text">
+            <string>Liste des commandes</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_stats">
+           <property name="text">
+            <string>Stats des commandes</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_email_auto">
+           <property name="text">
+            <string>Historique des emails</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_tab_calendar">
+           <property name="text">
+            <string>Calendrier</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QStackedWidget" name="stackedWidget">
+        <property name="currentIndex">
+         <number>1</number>
+        </property>
+        <widget class="QWidget" name="page_add">
+         <layout class="QVBoxLayout" name="pageAddLayout">
+          <item>
+           <widget class="QFrame" name="form_container">
+            <layout class="QFormLayout" name="addForm">
+             <property name="horizontalSpacing">
+              <number>25</number>
+             </property>
+             <property name="verticalSpacing">
+              <number>18</number>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="label_order_id">
+               <property name="text">
+                <string>ID Commande :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QLineEdit" name="le_id"/>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="label_order_type">
+               <property name="text">
+                <string>Type d'article :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QComboBox" name="cb_article_type">
+               <item>
+                <property name="text">
+                 <string>--Sélectionner--</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Sac à main</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Veste en cuir</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Chaussures</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Ceinture</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Portefeuille</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="label_order_quantity">
+               <property name="text">
+                <string>Quantité :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QSpinBox" name="sb_order_qty">
+               <property name="maximum">
+                <number>1000000</number>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QLabel" name="label_order_email">
+               <property name="text">
+                <string>Email Client :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="1">
+              <widget class="QLineEdit" name="le_client_email"/>
+             </item>
+             <item row="4" column="0">
+              <widget class="QLabel" name="label_order_city">
+               <property name="text">
+                <string>Ville Client :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="1">
+              <widget class="QComboBox" name="cb_client_city">
+               <item>
+                <property name="text">
+                 <string>--Sélectionner--</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Tunis</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Ariana</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Ben Arous</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Manouba</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Nabeul</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Zaghouan</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Bizerte</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Béja</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Jendouba</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Le Kef</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Siliana</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Kairouan</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Kasserine</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Sidi Bouzid</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Sousse</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Monastir</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Mahdia</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Sfax</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Gabès</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Médenine</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Tataouine</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Gafsa</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Tozeur</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Kébili</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item row="5" column="0">
+              <widget class="QLabel" name="label_order_status">
+               <property name="text">
+                <string>Statut :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="0">
+              <widget class="QLabel" name="label_order_date">
+               <property name="text">
+                <string>Date Commande :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="1">
+              <widget class="QDateEdit" name="de_date">
+               <property name="displayFormat">
+                <string>dd/MM/yyyy</string>
+               </property>
+               <property name="calendarPopup">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="7" column="0">
+              <widget class="QLabel" name="label_order_delivery">
+               <property name="text">
+                <string>Date Livraison :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="7" column="1">
+              <widget class="QDateEdit" name="de_date_delivery">
+               <property name="displayFormat">
+                <string>dd/MM/yyyy</string>
+               </property>
+               <property name="calendarPopup">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="9" column="0">
+              <widget class="QLabel" name="label_order_price">
+               <property name="text">
+                <string>Prix (TND) :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="9" column="1">
+              <widget class="QDoubleSpinBox" name="dsb_price">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                 <property name="buttonSymbols">
+                  <enum>QAbstractSpinBox::NoButtons</enum>
+                 </property>
+               <property name="maximum">
+                <double>100000000.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+             <item row="10" column="0">
+              <widget class="QLabel" name="label_order_employee_cin">
+               <property name="text">
+                <string>CIN Employé :</string>
+               </property>
+              </widget>
+             </item>
+             <item row="10" column="1">
+              <widget class="QLineEdit" name="le_proof">
+               <property name="placeholderText">
+                <string>Lien ou nom du fichier...</string>
+               </property>
+              </widget>
+             </item>
+             <item row="11" column="1">
+              <widget class="QPushButton" name="btn_valider">
+               <property name="text">
+                <string>ENREGISTRER</string>
+               </property>
+              </widget>
+             </item>
+             <item row="8" column="1">
+              <widget class="QComboBox" name="cb_status">
+               <item>
+                <property name="text">
+                 <string>--Sélectionner--</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>En attente</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Validé</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Expédié</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Livré</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <spacer name="vSpacerAdd">
+            <property name="orientation">
+             <enum>Qt::Orientation::Vertical</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_update">
+         <layout class="QVBoxLayout" name="pageUpdateLayout">
+          <item>
+           <widget class="QFrame" name="update_container">
+            <layout class="QVBoxLayout" name="updateVLayout">
+             <item>
+              <layout class="QHBoxLayout" name="searchUpdateLayout">
+               <item>
+                <widget class="QLineEdit" name="le_id_update_search">
+                 <property name="placeholderText">
+                  <string>Entrez l'ID à modifier...</string>
+                 </property>
+                </widget>
+               </item>
+                <item>
+                  <widget class="QPushButton" name="btn_search_update">
+                 <property name="text">
+                  <string>CHARGER</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="Line" name="line_update">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QFormLayout" name="updateForm">
+               <property name="horizontalSpacing">
+                <number>25</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>18</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="label_update_id">
+                 <property name="text">
+                  <string>ID Commande :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QLineEdit" name="le_id_update">
+                 <property name="styleSheet">
+                  <string>background-color: #E0E0E0;</string>
+                 </property>
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="label_update_type">
+                 <property name="text">
+                  <string>Type d'article :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="cb_type_update">
+                 <item>
+                  <property name="text">
+                   <string>-- Sélectionner --</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sac à main</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Veste en cuir</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Chaussures</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Ceinture</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Portefeuille</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="label_update_quantity">
+                 <property name="text">
+                  <string>Quantité :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QSpinBox" name="sb_qty_update">
+                 <property name="maximum">
+                  <number>1000000</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="label_update_email">
+                 <property name="text">
+                  <string>Email Client :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QLineEdit" name="le_email_update">
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                     <height>44</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="label_update_city">
+                 <property name="text">
+                  <string>Ville Client :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QComboBox" name="cb_city_update">
+                 <item>
+                  <property name="text">
+                   <string>--Sélectionner--</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Tunis</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Ariana</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Ben Arous</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Manouba</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Nabeul</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Zaghouan</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Bizerte</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Béja</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Jendouba</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Le Kef</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Siliana</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Kairouan</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Kasserine</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sidi Bouzid</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sousse</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Monastir</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Mahdia</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sfax</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Gabès</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Médenine</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Tataouine</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Gafsa</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Tozeur</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Kébili</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="5" column="0">
+                <widget class="QLabel" name="label_update_status">
+                 <property name="text">
+                  <string>Statut :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="5" column="1">
+                <widget class="QComboBox" name="cb_status_update">
+                 <item>
+                  <property name="text">
+                   <string>--Sélectionner--</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>En attente</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Validé</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Expédié</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Livré</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="6" column="0">
+                <widget class="QLabel" name="label_update_date">
+                 <property name="text">
+                  <string>Date Commande :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="6" column="1">
+                <widget class="QDateEdit" name="de_date_update">
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                 <property name="displayFormat">
+                  <string>dd/MM/yyyy</string>
+                 </property>
+                 <property name="calendarPopup">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="7" column="0">
+                <widget class="QLabel" name="label_update_delivery">
+                 <property name="text">
+                  <string>Date Livraison :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="7" column="1">
+                <widget class="QDateEdit" name="de_date_delivery_update">
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                 <property name="displayFormat">
+                  <string>dd/MM/yyyy</string>
+                 </property>
+                 <property name="calendarPopup">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="0">
+                <widget class="QLabel" name="label_update_price">
+                 <property name="text">
+                  <string>Prix (TND) :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="1">
+                <widget class="QDoubleSpinBox" name="dsb_price_update">
+                   <property name="minimumSize">
+                    <size>
+                     <width>0</width>
+                     <height>44</height>
+                    </size>
+                   </property>
+                 <property name="maximumSize">
+                  <size>
+                     <width>16777215</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                   <property name="buttonSymbols">
+                    <enum>QAbstractSpinBox::NoButtons</enum>
+                   </property>
+                 <property name="maximum">
+                  <double>100000000.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+               <item row="9" column="0">
+                <widget class="QLabel" name="label_update_employee_cin">
+                 <property name="text">
+                  <string>CIN Employé :</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="9" column="1">
+                <widget class="QLineEdit" name="le_proof_update">
+                 <property name="placeholderText">
+                  <string>Lien ou nom du fichier...</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="10" column="1">
+                <widget class="QPushButton" name="btn_update_confirm">
+                 <property name="text">
+                  <string>MODIFIER</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_delete">
+         <layout class="QVBoxLayout" name="pageDeleteLayout">
+          <item>
+           <widget class="QFrame" name="table_container">
+            <layout class="QVBoxLayout" name="tableVLayout">
+             <item>
+              <layout class="QHBoxLayout" name="searchDeleteLayout">
+               <item>
+                <widget class="QLineEdit" name="le_id_to_delete">
+                 <property name="placeholderText">
+                  <string>Entrez l'ID à supprimer...</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_delete_action">
+                 <property name="text">
+                  <string>SUPPRIMER</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="table_delete">
+               <property name="columnCount">
+                <number>5</number>
+               </property>
+               <column>
+                <property name="text">
+                 <string>ID</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Type</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Quantité</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Statut</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Email</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_list">
+         <layout class="QVBoxLayout" name="pageListLayout">
+          <item>
+           <widget class="QTabWidget" name="tabWidget_stats">
+            <property name="currentIndex">
+             <number>0</number>
+            </property>
+            <widget class="QWidget" name="tab_data">
+             <attribute name="title">
+              <string>Données &amp; Actions</string>
+             </attribute>
+             <layout class="QVBoxLayout" name="tabDataLayout">
+              <item>
+               <layout class="QHBoxLayout" name="toolbarLayout">
+                <item>
+                 <widget class="QLineEdit" name="le_search">
+                  <property name="placeholderText">
+                   <string>Rechercher (ID, Statut, Date)...</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="cb_sort">
+                  <item>
+                   <property name="text">
+                    <string>Trier par Date</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>Trier par Quantité</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>Trier par Prix (Croissant)</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>Trier par Prix (Decroissant)</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>Trier par Type</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>Trier par Statut</string>
+                   </property>
+                  </item>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btn_pdf">
+                  <property name="text">
+                   <string>Export PDF</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QTableWidget" name="table_list">
+                <property name="columnCount">
+                 <number>10</number>
+                </property>
+                <column>
+                 <property name="text">
+                  <string>ID</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Type</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Quantité</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Email</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Ville</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Date Com.</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Date Livr.</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Prix</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>CIN Employé</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Statut</string>
+                 </property>
+                </column>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+            <widget class="QWidget" name="tab_stats">
+             <attribute name="title">
+              <string>Statistiques</string>
+             </attribute>
+             <layout class="QGridLayout" name="statsGridLayout">
+              <item row="0" column="0">
+               <widget class="QFrame" name="stat_card_total">
+                <property name="styleSheet">
+                 <string>background-color: #C68E65; color: white; border-radius: 8px; padding: 10px;</string>
+                </property>
+                <layout class="QVBoxLayout" name="vboxTotal">
+                 <item>
+                  <widget class="QLabel" name="lbl_total_orders_title">
+                   <property name="text">
+                    <string>TOTAL COMMANDES</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_total_orders_val">
+                   <property name="styleSheet">
+                    <string>font-size: 24px; font-weight: bold;</string>
+                   </property>
+                   <property name="text">
+                    <string>0</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QFrame" name="stat_card_top">
+                <property name="styleSheet">
+                 <string>background-color: #3D362D; color: white; border-radius: 8px; padding: 10px;</string>
+                </property>
+                <layout class="QVBoxLayout" name="vboxTop">
+                 <item>
+                  <widget class="QLabel" name="lbl_top_client_title">
+                   <property name="text">
+                    <string>TOP CLIENT (Ville)</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_top_client_val">
+                   <property name="styleSheet">
+                    <string>font-size: 18px; font-weight: bold;</string>
+                   </property>
+                   <property name="text">
+                    <string>-</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item row="1" column="0" colspan="2">
+               <widget class="QFrame" name="chart_container">
+                <property name="styleSheet">
+                 <string>background-color: white; border-radius: 8px;</string>
+                </property>
+                <layout class="QVBoxLayout" name="chartLayout">
+                 <item>
+                  <layout class="QHBoxLayout" name="statsActionsLayout">
+                   <item>
+                    <widget class="QPushButton" name="btn_stat_price_asc">
+                     <property name="text">
+                      <string>Prix Croissant</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="btn_stat_price_desc">
+                     <property name="text">
+                      <string>Prix Decroissant</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="btn_stat_type">
+                     <property name="text">
+                      <string>Par Type</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_price_stats">
+                   <property name="text">
+                    <string>Prix: -</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_type_stats">
+                   <property name="text">
+                    <string>Aucune donnée.</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_city_stats">
+                   <property name="text">
+                    <string>Aucune donnée.</string>
+                   </property>
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_stats">
+         <layout class="QVBoxLayout" name="pageStatsLayout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QScrollArea" name="scrollArea_stats">
+            <property name="frameShape">
+             <enum>QFrame::Shape::NoFrame</enum>
+            </property>
+            <property name="widgetResizable">
+             <bool>true</bool>
+            </property>
+            <widget class="QWidget" name="scrollAreaWidgetContents_stats">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>0</y>
+               <width>961</width>
+               <height>1595</height>
+              </rect>
+             </property>
+             <layout class="QVBoxLayout" name="pageStatsInnerLayout">
+              <property name="spacing">
+               <number>15</number>
+              </property>
+              <property name="leftMargin">
+               <number>20</number>
+              </property>
+              <property name="topMargin">
+               <number>10</number>
+              </property>
+              <property name="rightMargin">
+               <number>20</number>
+              </property>
+              <property name="bottomMargin">
+               <number>20</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="label_stats_title">
+                <property name="styleSheet">
+                 <string>font-size: 26px; font-weight: bold; color: #8B4513; padding: 20px;</string>
+                </property>
+                <property name="text">
+                 <string>📊 TABLEAU DE BORD - STATISTIQUES</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QGridLayout" name="statsMainGrid">
+                <item row="0" column="0">
+                 <widget class="QFrame" name="stat_main_card_orders">
+                  <property name="styleSheet">
+                   <string>background-color: #C68E65; color: white; border-radius: 12px; padding: 20px;</string>
+                  </property>
+                  <layout class="QVBoxLayout" name="vboxMainOrders">
+                   <item>
+                    <widget class="QLabel" name="lbl_main_orders_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>TOTAL COMMANDES</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="lbl_main_orders_value">
+                     <property name="styleSheet">
+                      <string>font-size: 36px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>0</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QFrame" name="stat_main_card_revenue">
+                  <property name="styleSheet">
+                   <string>background-color: #3D362D; color: white; border-radius: 12px; padding: 20px;</string>
+                  </property>
+                  <layout class="QVBoxLayout" name="vboxMainRevenue">
+                   <item>
+                    <widget class="QLabel" name="lbl_main_revenue_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>REVENU TOTAL</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="lbl_main_revenue_value">
+                     <property name="styleSheet">
+                      <string>font-size: 36px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>0 DT</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="0" column="2">
+                 <widget class="QFrame" name="stat_main_card_pending">
+                  <property name="styleSheet">
+                   <string>background-color: #8B4513; color: white; border-radius: 12px; padding: 20px;</string>
+                  </property>
+                  <layout class="QVBoxLayout" name="vboxMainPending">
+                   <item>
+                    <widget class="QLabel" name="lbl_main_pending_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>EN ATTENTE</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="lbl_main_pending_value">
+                     <property name="styleSheet">
+                      <string>font-size: 36px; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>0</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="1" column="0" colspan="3">
+                 <widget class="QFrame" name="stats_chart_frame">
+                  <property name="styleSheet">
+                   <string>background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;</string>
+                  </property>
+                  <layout class="QVBoxLayout" name="chartMainLayout">
+                   <item>
+                    <widget class="QLabel" name="lbl_main_chart_title">
+                     <property name="styleSheet">
+                      <string>font-size: 18px; font-weight: bold; color: #3D362D;</string>
+                     </property>
+                     <property name="text">
+                      <string>RÉPARTITION PAR TYPE DE CUIR</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="lbl_main_type_stats">
+                     <property name="minimumSize">
+                      <size>
+                       <width>0</width>
+                       <height>150</height>
+                      </size>
+                     </property>
+                     <property name="styleSheet">
+                      <string>color: #3D362D; font-size: 14px; padding: 10px;</string>
+                     </property>
+                     <property name="text">
+                      <string>Aucune donnée disponible.</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="2" column="0" colspan="3">
+                 <widget class="QFrame" name="stats_main_details_container">
+                  <property name="styleSheet">
+                   <string>background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;</string>
+                  </property>
+                  <layout class="QGridLayout" name="statsMainDetailsGrid">
+                   <item row="0" column="0">
+                    <widget class="QLabel" name="lbl_main_top_product_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold; color: #3D362D;</string>
+                     </property>
+                     <property name="text">
+                      <string>PRODUIT LE PLUS VENDU:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="0" column="1">
+                    <widget class="QLabel" name="lbl_main_top_product_value">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; color: #C68E65; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>-</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="1" column="0">
+                    <widget class="QLabel" name="lbl_main_top_city_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold; color: #3D362D;</string>
+                     </property>
+                     <property name="text">
+                      <string>VILLE LA PLUS ACTIVE:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QLabel" name="lbl_main_top_city_value">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; color: #C68E65; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>-</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="0">
+                    <widget class="QLabel" name="lbl_main_avg_price_title">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; font-weight: bold; color: #3D362D;</string>
+                     </property>
+                     <property name="text">
+                      <string>PRIX MOYEN PAR COMMANDE:</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="2" column="1">
+                    <widget class="QLabel" name="lbl_main_avg_price_value">
+                     <property name="styleSheet">
+                      <string>font-size: 14px; color: #C68E65; font-weight: bold;</string>
+                     </property>
+                     <property name="text">
+                      <string>0 DT</string>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_email_auto">
+         <layout class="QVBoxLayout" name="pageEmailLayout">
+          <property name="spacing">
+           <number>20</number>
+          </property>
+          <property name="leftMargin">
+           <number>40</number>
+          </property>
+          <property name="topMargin">
+           <number>30</number>
+          </property>
+          <property name="rightMargin">
+           <number>40</number>
+          </property>
+          <property name="bottomMargin">
+           <number>40</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="label_email_title">
+            <property name="styleSheet">
+             <string>font-size: 28px; font-weight: bold; color: #8B4513; padding: 20px;</string>
+            </property>
+            <property name="text">
+             <string>� HISTORIQUE DES EMAILS</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_email_auto_info">
+            <property name="styleSheet">
+             <string>font-size: 16px; color: #666; padding: 10px; background-color: #e8f5e9; border-radius: 8px; margin: 0px 40px;</string>
+            </property>
+            <property name="text">
+             <string>ℹ️ Les emails sont envoyés automatiquement lors de la modification du statut des commandes.</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="verticalSpacer_email_top">
+            <property name="orientation">
+             <enum>Qt::Orientation::Vertical</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>40</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <spacer name="verticalSpacer_email_bottom">
+            <property name="orientation">
+             <enum>Qt::Orientation::Vertical</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>40</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_calendar">
+         <layout class="QVBoxLayout" name="pageCalendarLayout">
+          <property name="spacing">
+           <number>15</number>
+          </property>
+          <property name="leftMargin">
+           <number>20</number>
+          </property>
+          <property name="topMargin">
+           <number>10</number>
+          </property>
+          <property name="rightMargin">
+           <number>20</number>
+          </property>
+          <property name="bottomMargin">
+           <number>20</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="label_calendar_title">
+            <property name="styleSheet">
+             <string>font-size: 26px; font-weight: bold; color: #8B4513; padding: 20px;</string>
+            </property>
+            <property name="text">
+             <string>📅 CALENDRIER DES LIVRAISONS</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="calendarMainLayout">
+            <item>
+             <widget class="QFrame" name="calendar_container">
+              <property name="styleSheet">
+               <string>background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 15px;</string>
+              </property>
+              <layout class="QVBoxLayout" name="calendarLayout">
+               <item>
+                <widget class="QCalendarWidget" name="calendarWidget">
+                 <property name="minimumSize">
+                  <size>
+                   <width>450</width>
+                   <height>350</height>
+                  </size>
+                 </property>
+                 <property name="gridVisible">
+                  <bool>true</bool>
+                 </property>
+                 <property name="verticalHeaderFormat">
+                  <enum>QCalendarWidget::VerticalHeaderFormat::NoVerticalHeader</enum>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="calendarLegendLayout">
+                 <item>
+                  <widget class="QLabel" name="lbl_legend_today">
+                   <property name="text">
+                    <string>🟢 Aujourd'hui</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_legend_delivery">
+                   <property name="text">
+                    <string>🔵 Livraison prévue</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="lbl_legend_urgent">
+                   <property name="text">
+                    <string>🔴 Urgent</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QFrame" name="deliveries_list_container">
+              <property name="styleSheet">
+               <string>background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 15px;</string>
+              </property>
+              <layout class="QVBoxLayout" name="deliveriesListLayout">
+               <item>
+                <widget class="QLabel" name="lbl_deliveries_title">
+                 <property name="styleSheet">
+                  <string>font-size: 16px; font-weight: bold; color: #3D362D; padding-bottom: 10px;</string>
+                 </property>
+                 <property name="text">
+                  <string>Livraisons du jour sélectionné</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QListWidget" name="list_deliveries">
+                 <property name="minimumSize">
+                  <size>
+                   <width>350</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="styleSheet">
+                  <string>QListWidget { background-color: white; color: #3D362D; border: 1px solid #F2D2B5; }
+QListWidget::item { color: #3D362D; padding: 10px; border-bottom: 1px solid #F2D2B5; }
+QListWidget::item:selected { background-color: #C68E65; color: white; }</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="lbl_selected_date">
+                 <property name="styleSheet">
+                  <string>color: #8B4513; font-weight: bold; padding-top: 10px;</string>
+                 </property>
+                 <property name="text">
+                  <string>Date sélectionnée: -</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_export_calendar">
+                 <property name="styleSheet">
+                  <string>background-color: #8B4513; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold;</string>
+                 </property>
+                 <property name="text">
+                  <string>Exporter le calendrier (PDF)</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QFrame" name="calendar_stats_container">
+            <property name="styleSheet">
+             <string>background-color: white; border: 2px solid #F2D2B5; border-radius: 12px; padding: 20px;</string>
+            </property>
+            <layout class="QHBoxLayout" name="calendarStatsLayout">
+             <item>
+              <widget class="QFrame" name="stat_this_week">
+               <property name="styleSheet">
+                <string>background-color: #C68E65; color: white; border-radius: 8px; padding: 15px;</string>
+               </property>
+               <layout class="QVBoxLayout" name="vboxThisWeek">
+                <item>
+                 <widget class="QLabel" name="lbl_this_week_title">
+                  <property name="styleSheet">
+                   <string>font-size: 12px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>CETTE SEMAINE</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="lbl_this_week_value">
+                  <property name="styleSheet">
+                   <string>font-size: 28px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>0</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QFrame" name="stat_this_month">
+               <property name="styleSheet">
+                <string>background-color: #3D362D; color: white; border-radius: 8px; padding: 15px;</string>
+               </property>
+               <layout class="QVBoxLayout" name="vboxThisMonth">
+                <item>
+                 <widget class="QLabel" name="lbl_this_month_title">
+                  <property name="styleSheet">
+                   <string>font-size: 12px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>CE MOIS-CI</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="lbl_this_month_value">
+                  <property name="styleSheet">
+                   <string>font-size: 28px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>0</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QFrame" name="stat_overdue">
+               <property name="styleSheet">
+                <string>background-color: #8B4513; color: white; border-radius: 8px; padding: 15px;</string>
+               </property>
+               <layout class="QVBoxLayout" name="vboxOverdue">
+                <item>
+                 <widget class="QLabel" name="lbl_overdue_title">
+                  <property name="styleSheet">
+                   <string>font-size: 12px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>EN RETARD</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="lbl_overdue_value">
+                  <property name="styleSheet">
+                   <string>font-size: 28px; font-weight: bold;</string>
+                  </property>
+                  <property name="text">
+                   <string>0</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignmentFlag::AlignCenter</set>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_innov">
+         <layout class="QVBoxLayout" name="pageInnovLayout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_material">
+         <layout class="QVBoxLayout" name="verticalLayout_material">
+          <item>
+           <widget class="QLabel" name="label_material">
+            <property name="styleSheet">
+             <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
+            </property>
+            <property name="text">
+               <string/>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_employees">
+         <layout class="QVBoxLayout" name="verticalLayout_employees">
+          <item>
+           <widget class="QLabel" name="label_employees">
+            <property name="styleSheet">
+             <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
+            </property>
+            <property name="text">
+             <string>GESTION DES EMPLOYÉS</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_suppliers">
+         <layout class="QVBoxLayout" name="verticalLayout_suppliers">
+          <item>
+           <widget class="QLabel" name="label_suppliers">
+            <property name="styleSheet">
+             <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
+            </property>
+            <property name="text">
+             <string>GESTION DES FOURNISSEURS</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="page_ai">
+         <layout class="QVBoxLayout" name="verticalLayout_ai">
+          <item>
+           <widget class="QLabel" name="label_ai">
+            <property name="styleSheet">
+             <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
+            </property>
+            <property name="text">
+             <string>ASSISTANT IA</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignmentFlag::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="frame_ai">
+            <property name="styleSheet">
+             <string>background: white; border-radius: 12px; border: 1px solid #e8d7c7; padding: 16px;</string>
+            </property>
+            <layout class="QVBoxLayout" name="vbox_ai">
+             <item>
+              <widget class="QLabel" name="label_ai_intro">
+               <property name="styleSheet">
+                <string>font-size: 14px; font-weight: 600; color: #5a3b2a;</string>
+               </property>
+               <property name="text">
+                <string>Posez vos questions sur les matières et les stocks. (Prototype avec réponses fixes)</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTextBrowser" name="tb_ai_log">
+               <property name="minimumHeight">
+                <number>240</number>
+               </property>
+               <property name="styleSheet">
+                <string>background:#FFFCFA; border:1px solid #DDC6B0; border-radius: 10px; padding: 10px; color:#3b2a20;</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="hbox_ai_input">
+               <item>
+                <widget class="QLineEdit" name="le_ai_input">
+                 <property name="minimumHeight">
+                  <number>44</number>
+                 </property>
+                 <property name="placeholderText">
+                  <string>Ex: Donne-moi l'état du stock cuir</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string>background-color: white; border: 1px solid #C68E65; border-radius: 10px; padding: 10px; font-weight: 600; color:#3b2a20;</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_ai_send">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>44</height>
+                  </size>
+                 </property>
+                 <property name="styleSheet">
+                  <string>QPushButton{background:#8B4513;color:white;padding:10px 18px;border-radius:10px;font-weight:700;} QPushButton:hover{background:#a05a22;} QPushButton:pressed{background:#723a0f;}</string>
+                 </property>
+                 <property name="text">
+                  <string>Envoyer</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

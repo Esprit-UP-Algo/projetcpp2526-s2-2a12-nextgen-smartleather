@@ -1,0 +1,11 @@
+QT       += core gui printsupport sql charts network serialport multimedia multimediawidgets
+greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+CONFIG += c++17
+SOURCES += connexion.cpp main.cpp mainwindow.cpp smtp.cpp materialswindow.cpp arduinosensor.cpp employe.cpp logindialog.cpp
+HEADERS += connection.h mainwindow.h smtp.h materialswindow.h animationutils.h buttonanimation.h arduinosensor.h employe.h logindialog.h
+FORMS += mainwindow.ui materialswindow.ui employe.ui
+RESOURCES += resources.qrc
+INCLUDEPATH += $$PWD/build
+qnx: target.path = /tmp/$${TARGET}/bin
+else: unix:!android: target.path = /opt/$${TARGET}/bin
+!isEmpty(target.path): INSTALLS += target
