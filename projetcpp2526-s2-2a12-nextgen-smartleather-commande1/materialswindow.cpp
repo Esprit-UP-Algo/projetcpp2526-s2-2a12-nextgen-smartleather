@@ -11,6 +11,8 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QColor>
+#include <QLabel>
+#include <QStyle>
 #include <QHeaderView>
 #include <QIntValidator>
 #include <QFileDialog>
@@ -27,6 +29,7 @@
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 #include <QtCharts/QLegend>
 #include <QResizeEvent>
 #include <QSizePolicy>
@@ -35,6 +38,8 @@
 #include <QButtonGroup>
 #include <QAbstractSpinBox>
 #include <QScrollArea>
+#include <QTimer>
+#include <QTextBrowser>
 
 // Helpers forward declarations
 static void cleanupChildConstraintRows(QSqlDatabase &db, int idValue);
@@ -52,6 +57,9 @@ static const QMap<QString, QString> gLeatherColors = {
     {"Miel", "#C8965B"},
     {"Taupe fonce", "#7C6A58"}
 };
+constexpr int kCriticalStockThreshold = 10;
+constexpr int kSoonCriticalStockThreshold = 20;
+constexpr int kStockWatchIntervalMs = 60000;
 
 
 MaterialsWindow::MaterialsWindow(QWidget *parent)
@@ -71,7 +79,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a2a22, stop:1 #2b2019);"
             "color: #f4e9dd;"
             "border-right: 2px solid #C68E65;"
-            );
+        );
         mainLayout->addWidget(ui->sidebar);
 
         auto *contentLayout = new QVBoxLayout();
@@ -194,8 +202,27 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "QPushButton{background:#8B4513;color:white;padding:12px 24px;border-radius:10px;font-weight:700;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-            );
+        );
     };
+
+    QPushButton *btnNotifyStock = nullptr;
+    QPushButton *btnChatbotWaste = nullptr;
+    if (ui->hbox_stats_actions) {
+        ui->hbox_stats_actions->setContentsMargins(0, 0, 0, 0);
+        ui->hbox_stats_actions->setSpacing(12);
+
+        btnNotifyStock = new QPushButton("Notifier ruptures", ui->page_stats);
+        btnNotifyStock->setObjectName("btn_notify_stock");
+        btnNotifyStock->setToolTip("Verifier les matieres critiques et presque en rupture");
+
+        btnChatbotWaste = new QPushButton("Assistant anti-gaspillage", ui->page_stats);
+        btnChatbotWaste->setObjectName("btn_chatbot_waste");
+        btnChatbotWaste->setToolTip("Obtenir des propositions pour reduire la perte matiere");
+
+        ui->hbox_stats_actions->addWidget(btnNotifyStock);
+        ui->hbox_stats_actions->addWidget(btnChatbotWaste);
+        ui->hbox_stats_actions->addStretch(1);
+    }
 
     if (ui->btn_upd_load) {
         ui->btn_upd_load->setMinimumWidth(220);
@@ -217,15 +244,12 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
         ui->btn_upd_confirm,
         ui->btn_upd_load,
         ui->btn_export_pdf,
-        ui->btn_show_stats
+        ui->btn_show_stats,
+        btnNotifyStock,
+        btnChatbotWaste
     };
     for (auto *btn : primaryActions) {
         stylePrimaryBtn(btn);
-    }
-
-    if (ui->hbox_stats_actions) {
-        ui->hbox_stats_actions->setContentsMargins(0, 0, 0, 0);
-        ui->hbox_stats_actions->setSpacing(0);
     }
 
     // Bouton suppression : hauteur alignée, couleur rouge conservée
@@ -306,7 +330,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             "QPushButton{background:#8B4513;color:white;border-radius:12px;padding:14px 26px;font-weight:700;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-            );
+        );
         ui->btn_upd_load->show();
     }
 
@@ -326,8 +350,8 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
     // Groupe exclusif pour les onglets supérieurs
     const QString tabStyle = "QPushButton{padding:10px 16px;border:1px solid #C68E65;border-radius:8px;background:#f7ede4;color:#3b2a20;font-weight:600;}"
-                             "QPushButton:checked{background:#C68E65;color:white;}"
-                             "QPushButton:hover{background:#e7d6c8;}";
+                           "QPushButton:checked{background:#C68E65;color:white;}"
+                           "QPushButton:hover{background:#e7d6c8;}";
     auto *navGroup = new QButtonGroup(this);
     navGroup->setExclusive(true);
     const QList<QPushButton*> navButtons = { ui->btn_tab_add, ui->btn_tab_update, ui->btn_tab_delete, ui->btn_tab_list, ui->btn_tab_stats };
@@ -435,7 +459,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
     if (Connection::instance()->createConnect()) {
         // (optionnel) création de table sur le serveur si nécessaire
         QSqlDatabase db = Connection::instance()->database();
-
+        
         // Essayer de créer la séquence MATERIALS_SEQ si elle n'existe pas
         QSqlQuery seq(db);
         if (!seq.exec("CREATE SEQUENCE MATERIALS_SEQ START WITH 1 INCREMENT BY 1 NOCACHE")) {
@@ -648,7 +672,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             ins.addBindValue(ui->dsb_mat_yield->value());
             ins.addBindValue(ui->dsb_mat_loss->value());
         }
-
+        
         if(!ins.exec()) {
             QString errorMsg = "Erreur lors de l'insertion : " + ins.lastError().text();
             qDebug() << "Insert failed:" << errorMsg;
@@ -666,11 +690,6 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
         // mettre à jour la table affichée
         loadFromDatabase();
-
-        // Innovation : Notification Rupture immédiate
-        if(ui->sb_mat_qty->value() < 10) {
-            QMessageBox::warning(this, "Alerte Stock", "Attention : Le stock de " + ui->le_mat_name->text() + " est critique !");
-        }
 
         QMessageBox::information(this, "Succès", "Matière ajoutée avec succès et affichée dans la liste.");
 
@@ -697,7 +716,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
     });
 
     connect(ui->cb_sort_mat, &QComboBox::currentIndexChanged, this, [=](int index) {
-        if(index == 1) ui->table_mat->sortItems(0, Qt::AscendingOrder); // Nom
+        if(index == 1) ui->table_mat->sortItems(0, Qt::AscendingOrder); // ID
         else if(index == 2) ui->table_mat->sortItems(2, Qt::AscendingOrder); // Prix Croissant
         else if(index == 3) ui->table_mat->sortItems(2, Qt::DescendingOrder); // Prix Décroissant
     });
@@ -817,9 +836,9 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
         QSqlQuery q(db);
         q.prepare(QString(
-                      "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, type_matiere, prix, quantite_stock, couleur, rendement, perte_matiere "
-                      "FROM %1 WHERE id_matiere=?"
-                      ).arg(gMaterialsTableName));
+            "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, type_matiere, prix, quantite_stock, couleur, rendement, perte_matiere "
+            "FROM %1 WHERE id_matiere=?"
+        ).arg(gMaterialsTableName));
         q.addBindValue(searchId);
 
         if (!q.exec()) {
@@ -940,7 +959,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
             upd.addBindValue(ui->dsb_upd_loss->value());
             upd.addBindValue(searchIdValue);
         }
-
+        
         if(!upd.exec()) {
             QString sqlErr = upd.lastError().text();
             qDebug() << "Update failed:" << sqlErr;
@@ -998,8 +1017,8 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
 
         // Confirmation avant suppression
         QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmer suppression",
-                                                                  "Êtes-vous sûr de vouloir supprimer '" + name + "' ?",
-                                                                  QMessageBox::Yes | QMessageBox::No);
+            "Êtes-vous sûr de vouloir supprimer '" + name + "' ?",
+            QMessageBox::Yes | QMessageBox::No);
         if (reply != QMessageBox::Yes) return;
 
         // Delete de la base Oracle
@@ -1014,7 +1033,7 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
         QSqlQuery del(db);
         del.prepare(QString("DELETE FROM %1 WHERE id_matiere=?").arg(gMaterialsTableName));
         del.addBindValue(idValue);
-
+        
         if(!del.exec()) {
             const QString sqlErr = del.lastError().text();
             qDebug() << "Delete failed:" << sqlErr;
@@ -1070,6 +1089,25 @@ MaterialsWindow::MaterialsWindow(QWidget *parent)
         setNavChecked(ui->btn_tab_stats);
         ui->stackedWidget->setCurrentWidget(ui->page_stats);
     });
+
+    if (btnNotifyStock) {
+        connect(btnNotifyStock, &QPushButton::clicked, this, [this]() {
+            checkLowStockAlerts(true);
+        });
+    }
+    if (btnChatbotWaste) {
+        connect(btnChatbotWaste, &QPushButton::clicked, this, [this]() {
+            showWasteAssistant();
+        });
+    }
+
+    // Surveillance automatique périodique des ruptures
+    auto *stockWatchTimer = new QTimer(this);
+    stockWatchTimer->setInterval(kStockWatchIntervalMs);
+    connect(stockWatchTimer, &QTimer::timeout, this, [this]() {
+        checkLowStockAlerts(false);
+    });
+    stockWatchTimer->start();
 }
 
 static bool tableHasColumn(QSqlDatabase &db, const QString &tableName, const QString &columnName)
@@ -1178,84 +1216,456 @@ void MaterialsWindow::resizeEvent(QResizeEvent *event)
 // helper method calculates and updates statistic widgets
 void MaterialsWindow::refreshStats()
 {
-    int total = ui->table_mat->rowCount();
-    ui->lbl_total_mat_val->setText(QString::number(total));
+    if (!ui || !ui->table_mat) {
+        return;
+    }
+
+    const int totalRows = ui->table_mat->rowCount();
+    ui->lbl_total_mat_val->setText(QString::number(totalRows));
 
     int lowStockCount = 0;
-    double totalYield = 0;
-    double totalLoss = 0;
-    QString wasteAdvice = "Niveau de perte acceptable.";
+    double totalYield = 0.0;
+    double totalLoss = 0.0;
+    int yieldSamples = 0;
+    int lossSamples = 0;
     QMap<QString, int> typeCounts;
 
-    for(int i=0; i<total; ++i) {
-        if(ui->table_mat->item(i, 3)->text().toInt() < 10) lowStockCount++;
-        totalYield += ui->table_mat->item(i, 5)->text().toDouble();
-        totalLoss += ui->table_mat->item(i, 6)->text().toDouble();
-        QString typeVal = ui->table_mat->item(i, 1)->text().trimmed();
+    auto itemText = [this](int row, int col) -> QString {
+        QTableWidgetItem *item = ui->table_mat->item(row, col);
+        return item ? item->text().trimmed() : QString();
+    };
+
+    auto itemInt = [&](int row, int col, int fallback = 0) -> int {
+        bool ok = false;
+        const int value = itemText(row, col).toInt(&ok);
+        return ok ? value : fallback;
+    };
+
+    auto itemDouble = [&](int row, int col, double fallback = 0.0) -> double {
+        bool ok = false;
+        const double value = itemText(row, col).toDouble(&ok);
+        return ok ? value : fallback;
+    };
+
+    for (int row = 0; row < totalRows; ++row) {
+        const int quantity = itemInt(row, 3, 0);
+        if (quantity < 10) {
+            ++lowStockCount;
+        }
+
+        const double yield = itemDouble(row, 5, -1.0);
+        if (yield >= 0.0) {
+            totalYield += yield;
+            ++yieldSamples;
+        }
+
+        const double loss = itemDouble(row, 6, -1.0);
+        if (loss >= 0.0) {
+            totalLoss += loss;
+            ++lossSamples;
+        }
+
+        QString typeVal = itemText(row, 1);
         if (typeVal.isEmpty()) {
             typeVal = "Inconnu";
         }
         typeCounts[typeVal] += 1;
     }
 
-    if(lowStockCount > 0) {
-        ui->lbl_rupture_val->setText(QString::number(lowStockCount) + " matière(s) en rupture !");
-        ui->stat_card_rupture->setStyleSheet("background-color: #FF0000; color: white; border-radius: 8px; padding: 10px;");
-    } else {
-        ui->lbl_rupture_val->setText("Stock sain");
-        ui->stat_card_rupture->setStyleSheet("background-color: #2E8B57; color: white; border-radius: 8px; padding: 10px;");
+    const double avgYieldVal = (yieldSamples > 0) ? qBound(0.0, totalYield / yieldSamples, 100.0) : 0.0;
+    const double avgLossVal = (lossSamples > 0) ? qBound(0.0, totalLoss / lossSamples, 100.0) : 0.0;
+
+    const auto cardStyle = [](const QString &startColor,
+                              const QString &endColor,
+                              const QString &borderColor,
+                              const QString &textColor = "#ffffff") {
+        return QString(
+            "QFrame{"
+            "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2);"
+            "border:1px solid %3;"
+            "border-radius:14px;"
+            "padding:14px;"
+            "}"
+            "QLabel{color:%4;}"
+        ).arg(startColor, endColor, borderColor, textColor);
+    };
+
+    if (ui->stat_card_total) {
+        ui->stat_card_total->setStyleSheet(cardStyle("#c68e65", "#8b5e3b", "#a26f4f"));
     }
 
-    double avgLoss = (total > 0) ? (totalLoss / total) : 0;
-    if(avgLoss > 15.0) {
-        wasteAdvice = "ALERTE GASPILLAGE : Taux de perte élevé (" + QString::number(avgLoss, 'f', 1) + "%). \nAction : Réutiliser les chutes pour doublures ou accessoires.";
-        ui->stat_card_waste->setStyleSheet("background-color: #FF8C00; color: white; border-radius: 8px; padding: 10px;");
+    if (lowStockCount > 0) {
+        ui->lbl_rupture_val->setText(QString("%1 matiere(s) sous le seuil critique").arg(lowStockCount));
+        ui->stat_card_rupture->setStyleSheet(cardStyle("#c94a4a", "#8b1e1e", "#7f1b1b"));
     } else {
-        ui->stat_card_waste->setStyleSheet("background-color: #2E8B57; color: white; border-radius: 8px; padding: 10px;");
+        ui->lbl_rupture_val->setText("Stock global stable");
+        ui->stat_card_rupture->setStyleSheet(cardStyle("#3f8f6a", "#2f6f54", "#255944"));
+    }
+
+    QString wasteAdvice;
+    if (avgLossVal >= 15.0) {
+        wasteAdvice = QString("Perte moyenne elevee (%1%). Priorite: optimiser la coupe et reutiliser les chutes.")
+            .arg(QString::number(avgLossVal, 'f', 1));
+        ui->stat_card_waste->setStyleSheet(cardStyle("#d9863d", "#a25c21", "#8c4a17"));
+    } else if (avgLossVal >= 8.0) {
+        wasteAdvice = QString("Perte moderee (%1%). Une revue du process peut encore ameliorer le rendement.")
+            .arg(QString::number(avgLossVal, 'f', 1));
+        ui->stat_card_waste->setStyleSheet(cardStyle("#b88b52", "#8a6439", "#77552f"));
+    } else {
+        wasteAdvice = QString("Perte moyenne maitrisee (%1%). Performance globale saine.")
+            .arg(QString::number(avgLossVal, 'f', 1));
+        ui->stat_card_waste->setStyleSheet(cardStyle("#3f8f6a", "#2f6f54", "#255944"));
     }
     ui->lbl_waste_val->setText(wasteAdvice);
 
-    const double avgYieldVal = (total > 0) ? qBound(0.0, totalYield / total, 100.0) : 0.0;
-    const double avgLossVal = qBound(0.0, avgLoss, 100.0);
+    if (ui->frame_graph) {
+        ui->frame_graph->setStyleSheet(
+            "QFrame{background:#fffdfb;border:1px solid #d8c3b3;border-radius:14px;padding:14px;}"
+            "QLabel{color:#3d2b20;font-weight:600;}"
+        );
+    }
 
     ui->pb_yield->setRange(0, 100);
     ui->pb_loss->setRange(0, 100);
     ui->pb_yield->setValue(static_cast<int>(avgYieldVal));
     ui->pb_loss->setValue(static_cast<int>(avgLossVal));
+    ui->pb_yield->setFormat(QString("%1 %").arg(QString::number(avgYieldVal, 'f', 1)));
+    ui->pb_loss->setFormat(QString("%1 %").arg(QString::number(avgLossVal, 'f', 1)));
 
-    // Afficher les pourcentages sur les barres
-    ui->pb_yield->setFormat(QString::number(avgYieldVal, 'f', 1) + " %");
-    ui->pb_loss->setFormat(QString::number(avgLossVal, 'f', 1) + " %");
+    ui->pb_yield->setStyleSheet(
+        "QProgressBar{background:#f4ece5;border:1px solid #d8c3b3;border-radius:10px;text-align:center;color:#ffffff;font-weight:700;min-height:22px;}"
+        "QProgressBar::chunk{border-radius:10px;background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #5cbf7a, stop:1 #2f8f56);}"
+    );
+    ui->pb_loss->setStyleSheet(
+        "QProgressBar{background:#f4ece5;border:1px solid #d8c3b3;border-radius:10px;text-align:center;color:#ffffff;font-weight:700;min-height:22px;}"
+        "QProgressBar::chunk{border-radius:10px;background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #de8f52, stop:1 #b54a36);}"
+    );
 
-    // Pie chart: repartition par type de matiere
     if (ui->chart_mat_type) {
         auto *series = new QPieSeries();
+        series->setHoleSize(0.34);
+
         if (typeCounts.isEmpty()) {
-            series->append("Aucune donnee", 1);
+            QPieSlice *slice = series->append("Aucune donnee", 1);
+            slice->setBrush(QColor("#c9b8aa"));
+            slice->setLabelVisible(true);
         } else {
-            for (auto it = typeCounts.constBegin(); it != typeCounts.constEnd(); ++it) {
-                series->append(it.key(), it.value());
+            const QList<QColor> palette = {
+                QColor("#8B5E3B"),
+                QColor("#C68E65"),
+                QColor("#4A6A7F"),
+                QColor("#6E8B74"),
+                QColor("#A3755B"),
+                QColor("#A2A05A")
+            };
+
+            int idx = 0;
+            for (auto it = typeCounts.constBegin(); it != typeCounts.constEnd(); ++it, ++idx) {
+                QPieSlice *slice = series->append(it.key(), it.value());
+                slice->setBrush(palette[idx % palette.size()]);
+                slice->setLabel(QString("%1 (%2%)")
+                                    .arg(it.key())
+                                    .arg(QString::number(slice->percentage() * 100.0, 'f', 1)));
+                slice->setLabelVisible(true);
             }
         }
 
         auto *chart = new QChart();
         chart->addSeries(series);
-        chart->setTitle("Repartition par type");
-        chart->legend()->setAlignment(Qt::AlignRight);
+        chart->setTitle("Repartition des matieres");
+        chart->setTitleBrush(QBrush(QColor("#3d2b20")));
+        chart->setAnimationOptions(QChart::SeriesAnimations);
+        chart->legend()->setVisible(true);
+        chart->legend()->setAlignment(Qt::AlignBottom);
+        chart->legend()->setLabelColor(QColor("#4e3a2d"));
         chart->setBackgroundVisible(false);
+        chart->setMargins(QMargins(0, 0, 0, 0));
 
         if (ui->chart_mat_type->chart()) {
             ui->chart_mat_type->chart()->deleteLater();
         }
         ui->chart_mat_type->setChart(chart);
         ui->chart_mat_type->setRenderHint(QPainter::Antialiasing);
+        ui->chart_mat_type->setStyleSheet("background: transparent;");
     }
+}
+
+void MaterialsWindow::checkLowStockAlerts(bool forceShow)
+{
+    if (!ui || !ui->table_mat) {
+        return;
+    }
+
+    QStringList criticalLines;
+    QStringList soonLines;
+    QStringList signatureParts;
+
+    for (int row = 0; row < ui->table_mat->rowCount(); ++row) {
+        const QString id = (ui->table_mat->item(row, 0) ? ui->table_mat->item(row, 0)->text().trimmed() : QString::number(row + 1));
+        const QString material = (ui->table_mat->item(row, 1) ? ui->table_mat->item(row, 1)->text().trimmed() : QString("Matiere"));
+
+        bool okQty = false;
+        const int qty = (ui->table_mat->item(row, 3) ? ui->table_mat->item(row, 3)->text().trimmed().toInt(&okQty) : -1);
+        if (!okQty) {
+            continue;
+        }
+
+        if (qty < kCriticalStockThreshold) {
+            criticalLines << QString("- ID %1 | %2 : %3 en stock").arg(id, material, QString::number(qty));
+            signatureParts << QString("C:%1:%2").arg(id, QString::number(qty));
+        } else if (qty < kSoonCriticalStockThreshold) {
+            soonLines << QString("- ID %1 | %2 : %3 en stock").arg(id, material, QString::number(qty));
+            signatureParts << QString("S:%1:%2").arg(id, QString::number(qty));
+        }
+    }
+
+    std::sort(signatureParts.begin(), signatureParts.end());
+    const QString signature = signatureParts.join("|");
+
+    if (!forceShow && signature == lastStockAlertSignature) {
+        return;
+    }
+
+    if (criticalLines.isEmpty() && soonLines.isEmpty()) {
+        lastStockAlertSignature.clear();
+        if (forceShow) {
+            QMessageBox::information(this, "Surveillance stock", "Aucune matiere en rupture ou pre-rupture.");
+        }
+        return;
+    }
+
+    auto clampLines = [](const QStringList &lines, int maxLines) {
+        if (lines.size() <= maxLines) {
+            return lines;
+        }
+        QStringList limited = lines.mid(0, maxLines);
+        limited << QString("... et %1 autre(s)").arg(lines.size() - maxLines);
+        return limited;
+    };
+
+    QString message;
+    if (!criticalLines.isEmpty()) {
+        message += "Rupture critique (< 10):\n" + clampLines(criticalLines, 6).join("\n") + "\n\n";
+    }
+    if (!soonLines.isEmpty()) {
+        message += "Pre-rupture (< 20):\n" + clampLines(soonLines, 6).join("\n") + "\n\n";
+    }
+    message += "Action recommandee: lancer reapprovisionnement et ajuster le planning de production.";
+
+    lastStockAlertSignature = signature;
+    if (!criticalLines.isEmpty()) {
+        // Créer une dialog custom avec style luxe pour l'alerte critique
+        QDialog alertDialog(this);
+        alertDialog.setWindowTitle("Alerte Stock Automatique");
+        alertDialog.setMinimumWidth(550);
+        alertDialog.setWindowIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+        
+        // Appliquer un style gradient gris-bleu discret
+        alertDialog.setStyleSheet(R"(
+            QDialog {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #5A6C7D, stop:1 #3D4E5C);
+                border: 2px solid #2C3E50;
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #FFFFFF;
+                background: transparent;
+            }
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #E8E8E8, stop:1 #D0D0D0);
+                color: #2C3E50;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #FFFFFF, stop:1 #E0E0E0);
+            }
+        )");
+        
+        QVBoxLayout* layout = new QVBoxLayout(&alertDialog);
+        layout->setContentsMargins(20, 20, 20, 20);
+        layout->setSpacing(15);
+        
+        // Titre
+        QLabel* titleLabel = new QLabel("⚠ RUPTURE CRITIQUE DE STOCK");
+        titleLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF;");
+        layout->addWidget(titleLabel);
+        
+        // Message du contenu
+        QLabel* contentLabel = new QLabel(message);
+        contentLabel->setStyleSheet(
+            "font-size: 12px; color: #FFFFFF; "
+            "background: rgba(255, 255, 255, 0.15); "
+            "padding: 12px; border-radius: 6px; "
+            "border-left: 4px solid #FFEB3B;"
+        );
+        contentLabel->setWordWrap(true);
+        layout->addWidget(contentLabel);
+        
+        // Bouton OK
+        QPushButton* okBtn = new QPushButton("D'accord");
+        okBtn->setMinimumHeight(36);
+        QObject::connect(okBtn, &QPushButton::clicked, &alertDialog, &QDialog::accept);
+        layout->addWidget(okBtn);
+        
+        alertDialog.exec();
+    } else {
+        QMessageBox::information(this, "Surveillance stock", message);
+    }
+}
+
+void MaterialsWindow::showWasteAssistant()
+{
+    if (!ui || !ui->table_mat) {
+        return;
+    }
+
+    int total = 0;
+    int criticalCount = 0;
+    double totalYield = 0.0;
+    double totalLoss = 0.0;
+    int yieldSamples = 0;
+    int lossSamples = 0;
+
+    for (int row = 0; row < ui->table_mat->rowCount(); ++row) {
+        ++total;
+
+        bool okQty = false;
+        const int qty = (ui->table_mat->item(row, 3) ? ui->table_mat->item(row, 3)->text().trimmed().toInt(&okQty) : -1);
+        if (okQty && qty < kCriticalStockThreshold) {
+            ++criticalCount;
+        }
+
+        bool okYield = false;
+        const double yield = (ui->table_mat->item(row, 5) ? ui->table_mat->item(row, 5)->text().trimmed().toDouble(&okYield) : -1.0);
+        if (okYield && yield >= 0.0) {
+            totalYield += yield;
+            ++yieldSamples;
+        }
+
+        bool okLoss = false;
+        const double loss = (ui->table_mat->item(row, 6) ? ui->table_mat->item(row, 6)->text().trimmed().toDouble(&okLoss) : -1.0);
+        if (okLoss && loss >= 0.0) {
+            totalLoss += loss;
+            ++lossSamples;
+        }
+    }
+
+    const double avgYield = (yieldSamples > 0) ? (totalYield / yieldSamples) : 0.0;
+    const double avgLoss = (lossSamples > 0) ? (totalLoss / lossSamples) : 0.0;
+
+    auto answerForQuestion = [=](const QString &questionRaw) {
+        const QString q = questionRaw.trimmed().toLower();
+
+        if (q.contains("diagnostic") || q.contains("bilan") || q.contains("etat") || q.contains("resume")) {
+            return QString(
+                "Diagnostic actuel:\n"
+                "- Matieres analysees: %1\n"
+                "- Rendement moyen: %2%\n"
+                "- Perte moyenne: %3%\n"
+                "- Matieres critiques: %4"
+            ).arg(total)
+             .arg(QString::number(avgYield, 'f', 1))
+             .arg(QString::number(avgLoss, 'f', 1))
+             .arg(criticalCount);
+        }
+
+        if (q.contains("coupe") || q.contains("patron") || q.contains("decoupe")) {
+            return QString(
+                "Conseils coupe:\n"
+                "1) Grouper les commandes par type de matiere/couleur pour reduire les pertes.\n"
+                "2) Optimiser les gabarits avant lancement de lot.\n"
+                "3) Mesurer le taux de chute par poste chaque semaine."
+            );
+        }
+
+        if (q.contains("recycl") || q.contains("chute") || q.contains("doublure") || q.contains("accessoire")) {
+            return QString(
+                "Pistes de reutilisation:\n"
+                "- Chutes cuir -> doublures, porte-cartes, etiquettes.\n"
+                "- Chutes tissu -> poches internes / essais qualite.\n"
+                "- Creer un bac 'chutes exploitables' par categorie."
+            );
+        }
+
+        if (q.contains("plan") || q.contains("priorite") || q.contains("action")) {
+            if (avgLoss >= 15.0) {
+                return QString(
+                    "Plan prioritaire (perte elevee):\n"
+                    "1) Audit des 3 matieres les plus perdues.\n"
+                    "2) Reglage coupe + formation operateur.\n"
+                    "3) Controle quotidien du rendement pendant 2 semaines."
+                );
+            }
+            return QString(
+                "Plan de progression:\n"
+                "1) Maintenir le suivi rendement/perte chaque lot.\n"
+                "2) Standardiser la reutilisation des chutes.\n"
+                "3) Declencher alerte pre-rupture a < %1 unites."
+            ).arg(kSoonCriticalStockThreshold);
+        }
+
+        return QString(
+            "Je peux aider sur: diagnostic, coupe, recyclage des chutes, plan d'action.\n"
+            "Exemple: 'donne moi un diagnostic' ou 'propose un plan anti gaspillage'."
+        );
+    };
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Assistant anti-gaspillage");
+    dialog.resize(700, 460);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *chatLog = new QTextBrowser(&dialog);
+    chatLog->setStyleSheet(
+        "QTextBrowser{background:#fffaf5;border:1px solid #d8c3b3;border-radius:10px;padding:10px;color:#3b2a20;}"
+    );
+
+    auto *input = new QLineEdit(&dialog);
+    input->setPlaceholderText("Posez votre question (diagnostic, plan, coupe, recyclage)...");
+
+    auto *buttonsLayout = new QHBoxLayout();
+    auto *btnSend = new QPushButton("Envoyer", &dialog);
+    auto *btnClose = new QPushButton("Fermer", &dialog);
+    buttonsLayout->addWidget(btnSend);
+    buttonsLayout->addWidget(btnClose);
+
+    layout->addWidget(chatLog, 1);
+    layout->addWidget(input);
+    layout->addLayout(buttonsLayout);
+
+    chatLog->append("<b>Assistant:</b> Bonjour. Je peux vous aider a reduire le gaspillage matiere.");
+    chatLog->append(QString("<b>Assistant:</b> Rendement moyen actuel: %1% | Perte moyenne: %2% | Matieres critiques: %3")
+                       .arg(QString::number(avgYield, 'f', 1))
+                       .arg(QString::number(avgLoss, 'f', 1))
+                       .arg(criticalCount));
+
+    auto sendQuestion = [&]() {
+        const QString question = input->text().trimmed();
+        if (question.isEmpty()) {
+            return;
+        }
+        chatLog->append(QString("<b>Vous:</b> %1").arg(question.toHtmlEscaped()));
+        chatLog->append(QString("<b>Assistant:</b> %1").arg(answerForQuestion(question).toHtmlEscaped().replace("\n", "<br>")));
+        input->clear();
+    };
+
+    QObject::connect(btnSend, &QPushButton::clicked, &dialog, sendQuestion);
+    QObject::connect(input, &QLineEdit::returnPressed, &dialog, sendQuestion);
+    QObject::connect(btnClose, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    dialog.exec();
 }
 
 
 void MaterialsWindow::loadFromDatabase()
 {
-    qDebug() << "loadFromDatabase start";
     QSqlDatabase db = Connection::instance()->database();
     if (!db.isOpen()) {
         qDebug() << "Database is not open; attempting reconnect...";
@@ -1284,8 +1694,8 @@ void MaterialsWindow::loadFromDatabase()
 
     for (const QString &candidate : candidates) {
         const QString sql = QString(
-                                "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, prix, quantite_stock, couleur, rendement, perte_matiere FROM %1"
-                                ).arg(candidate);
+            "SELECT id_matiere, NVL(nom_matiere, type_matiere) AS nom_matiere, prix, quantite_stock, couleur, rendement, perte_matiere FROM %1"
+        ).arg(candidate);
         if (query.exec(sql)) {
             gMaterialsTableName = candidate;
             gHasNomMatiere = tableHasColumn(db, candidate, "NOM_MATIERE");
@@ -1306,25 +1716,65 @@ void MaterialsWindow::loadFromDatabase()
     const bool delSorting = ui->table_del_mat->isSortingEnabled();
     ui->table_del_mat->setSortingEnabled(false);
     ui->table_del_mat->setRowCount(0);
+
+    auto makeIntegerItem = [](const QVariant &value) {
+        auto *item = new QTableWidgetItem();
+        bool ok = false;
+        const qlonglong num = value.toLongLong(&ok);
+        if (ok) {
+            item->setData(Qt::DisplayRole, num);
+        } else {
+            item->setText(value.toString());
+        }
+        return item;
+    };
+
+    auto makeDoubleItem = [](const QVariant &value) {
+        auto *item = new QTableWidgetItem();
+        bool ok = false;
+        const double num = value.toDouble(&ok);
+        if (ok) {
+            item->setData(Qt::DisplayRole, num);
+        } else {
+            item->setText(value.toString());
+        }
+        return item;
+    };
+
     int row = 0;
-    const int fieldCount = query.record().count();
-    const int maxCols = qMin(7, fieldCount);
     while(query.next()) {
         ui->table_mat->insertRow(row);
-        for(int col = 0; col < maxCols; ++col) {
-            ui->table_mat->setItem(row, col, new QTableWidgetItem(query.value(col).toString()));
+        for(int col = 0; col < 7; ++col) {
+            if (col == 0) {
+                ui->table_mat->setItem(row, col, makeIntegerItem(query.value(col))); // ID
+            } else if (col == 2) {
+                ui->table_mat->setItem(row, col, makeDoubleItem(query.value(col))); // Prix
+            } else {
+                ui->table_mat->setItem(row, col, new QTableWidgetItem(query.value(col).toString()));
+            }
         }
 
         ui->table_del_mat->insertRow(row);
-        for (int col = 0; col < maxCols; ++col) {
-            ui->table_del_mat->setItem(row, col, new QTableWidgetItem(query.value(col).toString()));
-        }
+        ui->table_del_mat->setItem(row, 0, makeIntegerItem(query.value(0)));
+        ui->table_del_mat->setItem(row, 1, new QTableWidgetItem(query.value(1).toString()));
+        ui->table_del_mat->setItem(row, 2, makeDoubleItem(query.value(2)));
+        ui->table_del_mat->setItem(row, 3, new QTableWidgetItem(query.value(3).toString()));
+        ui->table_del_mat->setItem(row, 4, new QTableWidgetItem(query.value(4).toString()));
+        ui->table_del_mat->setItem(row, 5, new QTableWidgetItem(query.value(5).toString()));
+        ui->table_del_mat->setItem(row, 6, new QTableWidgetItem(query.value(6).toString()));
 
         ++row;
     }
     ui->table_del_mat->setSortingEnabled(delSorting);
     qDebug() << "Table loaded with" << row << "rows";
-    qDebug() << "loadFromDatabase end";
+
+    checkLowStockAlerts(false);
+}
+
+void MaterialsWindow::refreshFromDb()
+{
+    loadFromDatabase();
+    refreshStats();
 }
 
 MaterialsWindow::~MaterialsWindow()

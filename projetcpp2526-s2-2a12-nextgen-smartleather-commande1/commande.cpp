@@ -1,11 +1,13 @@
-﻿#include "commande.h"
+#include "commande.h"
 #include "ui_commande.h"
 #include "connection.h"
 #include "materialswindow.h"
-#include "logindialog.h"
+#include "employe.h"
 #include <QMessageBox>
 #include <QClipboard>
 #include <QPrinter>
+#include <QtConcurrent/QtConcurrent>
+#include <QUuid>
 #include <QPrintDialog>
 #include <QTextDocument>
 #include <QDateTime>
@@ -22,6 +24,7 @@
 #include <QInputDialog>
 #include <QTimer>
 #include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QIntValidator>
 #include <QVariant>
 #include <QTableWidget>
@@ -30,7 +33,6 @@
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QPushButton>
-#include <utility>
 #include <QLabel>
 #include <QLineEdit>
 #include <QComboBox>
@@ -45,16 +47,22 @@
 #include <QSizePolicy>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QtSerialPort/QSerialPortInfo>
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QTextStream>
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QStringList>
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
 #include <QtCharts/QLegend>
 #include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 
 namespace {
 constexpr bool kSmtpEnabled = true; // toggle SMTP sending
@@ -62,206 +70,457 @@ constexpr const char* kDefaultEmployeeCin = "12345678"; // CIN temporaire en att
 
 QString detectOrdersTableName(QSqlDatabase &db)
 {
-    static QString cached;
-    if (!cached.isEmpty()) return cached;
-
-    const QStringList candidates = {"COMMANDES", "COMMANDE", "ORDRES", "ORDERES", "ORDERS", "ORDER", "ORDRE"};
-    const QStringList tables = db.tables(QSql::Tables);
-
-    for (const QString &candidate : candidates) {
-        for (const QString &tableName : tables) {
-            if (tableName.compare(candidate, Qt::CaseInsensitive) == 0) {
-                cached = tableName;
-                return cached;
-            }
+    auto tableExists = [&](const QString &name) -> bool {
+        QSqlQuery t(db);
+        t.prepare("SELECT COUNT(*) FROM user_tables WHERE table_name = :t");
+        t.bindValue(":t", name.toUpper());
+        if (!t.exec() || !t.next()) {
+            return false;
         }
+        return t.value(0).toInt() > 0;
+    };
+
+    if (tableExists("COMMANDES")) {
+        return "COMMANDES";
     }
-
-    for (const QString &candidate : candidates) {
-        QSqlQuery q(db);
-        if (q.exec(QString("SELECT COUNT(*) FROM %1").arg(candidate))) {
-            cached = candidate;
-            return cached;
-        }
+    if (tableExists("COMMANDE")) {
+        return "COMMANDE";
     }
     return {};
 }
 
-// Cache des colonnes par table pour éviter les requêtes répétées
-static QMap<QString, QStringList> s_colCache;
-
-QStringList getTableColumns(QSqlDatabase &db, const QString &tableName)
+QString detectMaterialsTableName(QSqlDatabase &db)
 {
-    const QString key = tableName.toUpper();
-    if (s_colCache.contains(key)) {
-        return s_colCache.value(key);
+    QStringList candidates;
+    if (!gMaterialsTableName.trimmed().isEmpty()) {
+        candidates << gMaterialsTableName.trimmed();
     }
+    candidates << "MATIERE_PREMIERE"
+               << "RAYEN.MATIERE_PREMIERE"
+               << "\"RAYEN\".\"MATIERE_PREMIERE\""
+               << "MARYEM.MATIERE_PREMIERE"
+               << "\"MARYEM\".\"MATIERE_PREMIERE\""
+               << "MATERIALS"
+               << "RAYEN.MATERIALS"
+               << "\"RAYEN\".\"MATERIALS\""
+               << "MARYEM.MATERIALS"
+               << "\"MARYEM\".\"MATERIALS\"";
+    candidates.removeDuplicates();
 
-    QStringList cols;
-    QSqlRecord record = db.record(tableName);
-    if (record.count() > 0) {
-        for (int i = 0; i < record.count(); ++i) {
-            cols << record.fieldName(i).toUpper();
-        }
-    }
-
-    if (cols.isEmpty()) {
-        QSqlQuery q(db);
-        const QString sql = QString("SELECT * FROM %1 WHERE 1=0").arg(tableName);
-        if (q.exec(sql)) {
-            record = q.record();
-            for (int i = 0; i < record.count(); ++i) {
-                cols << record.fieldName(i).toUpper();
-            }
-        } else {
-            qDebug() << "getTableColumns: SELECT * FROM 1=0 failed for" << tableName << q.lastError().text();
-        }
-    }
-
-    if (cols.isEmpty()) {
-        QSqlQuery q(db);
-        q.prepare("SELECT column_name FROM user_tab_columns WHERE table_name = :t");
-        q.bindValue(":t", key);
-        if (q.exec()) {
-            while (q.next()) {
-                cols << q.value(0).toString().toUpper();
-            }
-        } else {
-            qDebug() << "getTableColumns: user_tab_columns query failed for" << tableName << q.lastError().text();
-        }
-    }
-
-    s_colCache.insert(key, cols);
-    return cols;
-}
-
-static QString findFirstExistingColumn(const QStringList &availableCols, const QStringList &candidates)
-{
     for (const QString &candidate : candidates) {
-        const QString can = candidate.toUpper();
-        for (const QString &available : availableCols) {
-            const QString avail = available.toUpper();
-            if (avail == can || avail.contains(can)) {
-                return avail;
-            }
-        }
-    }
-    return {};
-}
-
-static QString selectExpr(const QString &columnName, const QString &alias, const QString &fallback = "NULL")
-{
-    if (!columnName.isEmpty()) {
-        return columnName + " AS " + alias;
-    }
-    return fallback + " AS " + alias;
-}
-
-struct OrderColumns {
-    QString id;
-    QString type;
-    QString qty;
-    QString email;
-    QString status;
-    QString dateCmd;
-    QString dateLivr;
-    QString price;
-    QString cin;
-    bool valid = true;
-};
-
-OrderColumns detectOrderColumns(QSqlDatabase &db, const QString &tableName)
-{
-    static QMap<QString, OrderColumns> cache;
-    const QString key = tableName.toUpper();
-    if (cache.contains(key)) return cache.value(key);
-
-    OrderColumns oc;
-    const QStringList cols = getTableColumns(db, key);
-
-    if (!cols.isEmpty()) {
-        oc.id      = findFirstExistingColumn(cols, {"ID_COMMANDE","ID","ID_CMD","COMMANDE_ID","ORDER_ID"});
-        oc.type    = findFirstExistingColumn(cols, {"TYPE_PRODUIT","TYPE","TYPE_ARTICLE","ITEM_TYPE","PRODUCT_TYPE"});
-        oc.qty     = findFirstExistingColumn(cols, {"QUANTITE","QTE","QUANTITY","QTY","AMOUNT"});
-        oc.email   = findFirstExistingColumn(cols, {"EMAIL_CLIENT","EMAIL","MAIL_CLIENT","CLIENT_EMAIL","CUSTOMER_EMAIL"});
-        oc.status  = findFirstExistingColumn(cols, {"STATUT","STATUS","ETAT","ORDER_STATUS","STATE"});
-        oc.dateCmd = findFirstExistingColumn(cols, {"DATE_COMMANDE","DATE_CMD","ORDER_DATE","DATE_ORDER"});
-        oc.dateLivr= findFirstExistingColumn(cols, {"DATE_LIVRAISON_PREVUE","DATE_LIVRAISON","DELIVERY_DATE","DATE_DELIVERY","DELIVERY_DATE_PREVUE"});
-        oc.price   = findFirstExistingColumn(cols, {"PRIX_TOTAL","PRIX","MONTANT","TOTAL_PRICE","PRICE"});
-        oc.cin     = findFirstExistingColumn(cols, {"CIN_EMPLOYE","CIN","ID_EMPLOYE","ID","EMPLOYEE_ID","EMP_ID"});
-
-        if (oc.price.isEmpty()) {
-            qDebug() << "detectOrderColumns: no price column found for" << key << "available:" << cols;
-        }
-    }
-
-    oc.valid = !oc.id.isEmpty() && !oc.type.isEmpty() && !oc.qty.isEmpty();
-    cache.insert(key, oc);
-    return oc;
-}
-
-struct EmpColumns {
-    QString id           = "CIN_EMPLOYE";
-    QString nom          = "NOM";
-    QString poste        = "POSTE";
-    QString adresse      = "ADRESSE";
-    QString telephone    = "TELEPHONE";
-    QString dateEmbauche = "DATE_EMBAUCHE";
-    QString salaire      = "SALAIRE";
-    QString statut       = "STATUT";
-    QString sexe         = "SEXE";
-    bool valid = true;
-};
-
-EmpColumns detectEmpColumns(QSqlDatabase &db, const QString &tableName)
-{
-    static QMap<QString, EmpColumns> cache;
-    const QString key = tableName.toUpper();
-    if (cache.contains(key)) return cache.value(key);
-
-    EmpColumns ec;
-    const QStringList cols = getTableColumns(db, key);
-    if (!cols.isEmpty()) {
-        ec.id           = findFirstExistingColumn(cols, {"CIN_EMPLOYE","CIN","ID_EMPLOYE","ID","EMPLOYEE_ID","EMP_ID"});
-        ec.nom          = findFirstExistingColumn(cols, {"NOM","NOM_EMPLOYE","NAME","EMPLOYEE_NAME","FULL_NAME","NOM_COMPLET"});
-        ec.poste        = findFirstExistingColumn(cols, {"POSTE","ROLE","POSITION","JOB","JOB_TITLE","FUNCTION","TITLE"});
-        ec.adresse      = findFirstExistingColumn(cols, {"ADRESSE","ADDRESS","ADDR","EMP_ADDRESS","EMP_ADRESSE","ADDRESS_LINE"});
-        ec.telephone    = findFirstExistingColumn(cols, {"TELEPHONE","TEL","PHONE","PHONE_NUMBER","MOBILE","MOBILE_PHONE"});
-        ec.dateEmbauche = findFirstExistingColumn(cols, {"DATE_EMBAUCHE","HIRE_DATE","DATE_HIRED","START_DATE","EMPLOYED_DATE"});
-        ec.salaire      = findFirstExistingColumn(cols, {"SALAIRE","SALARY","WAGE","PAY","SALARY_AMOUNT"});
-        ec.statut       = findFirstExistingColumn(cols, {"STATUT","STATUS","EMP_STATUS","STATE"});
-        ec.sexe         = findFirstExistingColumn(cols, {"SEXE","GENDER","SEX"});
-    }
-    cache.insert(key, ec);
-    return ec;
-}
-
-QString detectEmployeeTableName(QSqlDatabase &db)
-{
-    static QString cached;
-    if (!cached.isEmpty()) return cached;
-
-    // 1. Via db.tables() — pas de requête SQL directe
-    const QStringList tables = db.tables(QSql::Tables);
-    for (const QString &candidate : {"EMPLOYE","EMPLOYES","EMPLOYEE","EMPLOYEES"}) {
-        for (const QString &t : tables) {
-            if (t.compare(candidate, Qt::CaseInsensitive) == 0) {
-                cached = t.toUpper();
-                return cached;
-            }
-        }
-    }
-
-    // 2. Fallback : tester directement avec SELECT COUNT(*)
-    for (const QString &candidate : {"EMPLOYE","EMPLOYES","EMPLOYEE","EMPLOYEES"}) {
-        QSqlQuery q(db);
-        if (q.exec(QString("SELECT COUNT(*) FROM %1").arg(candidate))) {
-            cached = candidate;
-            return cached;
+        QSqlQuery probe(db);
+        if (probe.exec(QString("SELECT 1 FROM %1 WHERE ROWNUM = 1").arg(candidate))) {
+            gMaterialsTableName = candidate;
+            return candidate;
         }
     }
 
     return {};
+}
+
+QString inferMaterialTypeFromOrderType(const QString &orderType)
+{
+    const QString normalized = orderType.trimmed().toLower();
+
+    if (normalized.contains("tissu")) {
+        return "Tissu";
+    }
+    if (normalized.contains("fil")) {
+        return "Fil";
+    }
+    if (normalized.contains("accessoire")) {
+        return "Accessoire";
+    }
+    if (normalized.contains("synth")) {
+        return "Synthetique";
+    }
+
+    // Les types de produits actuels (sac, veste, chaussures, ceinture, portefeuille)
+    // consomment principalement du cuir.
+    return "Cuir";
+}
+
+bool adjustMaterialStockForOrderDelta(QSqlDatabase &db,
+                                      const QString &orderType,
+                                      int qtyDelta,
+                                      QString *infoOut = nullptr,
+                                      QString *errorOut = nullptr,
+                                      QStringList *usedMaterialIdsOut = nullptr)
+{
+    if (usedMaterialIdsOut) {
+        usedMaterialIdsOut->clear();
+    }
+
+    if (qtyDelta == 0) {
+        if (infoOut) {
+            *infoOut = "Aucun ajustement de stock matiere.";
+        }
+        return true;
+    }
+
+    const QString tableName = detectMaterialsTableName(db);
+    if (tableName.isEmpty()) {
+        if (errorOut) {
+            *errorOut = "Table matiere introuvable (MATIERE_PREMIERE/MATERIALS).";
+        }
+        return false;
+    }
+
+    const QString wantedType = inferMaterialTypeFromOrderType(orderType);
+    const int absoluteQty = qAbs(qtyDelta);
+
+    struct MaterialRow {
+        QVariant id;
+        QString type;
+        int stock = 0;
+    };
+
+    auto appendRows = [](QSqlQuery &query, QList<MaterialRow> &rows) {
+        while (query.next()) {
+            MaterialRow row;
+            row.id = query.value(0);
+            row.type = query.value(1).toString().trimmed();
+            row.stock = query.value(2).toInt();
+            if (!row.id.isValid()) {
+                continue;
+            }
+            rows << row;
+        }
+    };
+
+    if (qtyDelta > 0) {
+        QList<MaterialRow> candidates;
+
+        QSqlQuery byType(db);
+        byType.prepare(QString(
+            "SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+            "FROM %1 "
+            "WHERE UPPER(TRIM(TYPE_MATIERE)) = UPPER(TRIM(:type)) AND QUANTITE_STOCK > 0 "
+            "ORDER BY QUANTITE_STOCK DESC, ID_MATIERE ASC"
+        ).arg(tableName));
+        byType.bindValue(":type", wantedType);
+
+        if (!byType.exec()) {
+            if (errorOut) {
+                *errorOut = "Echec lecture stock matiere: " + byType.lastError().text();
+            }
+            return false;
+        }
+        appendRows(byType, candidates);
+
+        bool usedFallback = false;
+        if (candidates.isEmpty()) {
+            QSqlQuery anyType(db);
+            anyType.prepare(QString(
+                "SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+                "FROM %1 "
+                "WHERE QUANTITE_STOCK > 0 "
+                "ORDER BY QUANTITE_STOCK DESC, ID_MATIERE ASC"
+            ).arg(tableName));
+
+            if (!anyType.exec()) {
+                if (errorOut) {
+                    *errorOut = "Echec lecture stock matiere (fallback): " + anyType.lastError().text();
+                }
+                return false;
+            }
+            appendRows(anyType, candidates);
+            usedFallback = true;
+        }
+
+        if (candidates.isEmpty()) {
+            if (errorOut) {
+                *errorOut = "Aucune matiere disponible pour ajuster le stock.";
+            }
+            return false;
+        }
+
+        int totalAvailable = 0;
+        for (const MaterialRow &row : candidates) {
+            totalAvailable += qMax(0, row.stock);
+        }
+
+        if (totalAvailable < absoluteQty) {
+            if (errorOut) {
+                const QString stockScope = usedFallback
+                    ? "stock global"
+                    : QString("type '%1'").arg(wantedType);
+                *errorOut = QString("Stock insuffisant (%1): disponible=%2, demande=%3.")
+                    .arg(stockScope, QString::number(totalAvailable), QString::number(absoluteQty));
+            }
+            return false;
+        }
+
+        int remaining = absoluteQty;
+        QStringList details;
+        QStringList usedMaterialIds;
+
+        for (const MaterialRow &row : candidates) {
+            if (remaining <= 0) {
+                break;
+            }
+
+            const int takeQty = qMin(remaining, qMax(0, row.stock));
+            if (takeQty <= 0) {
+                continue;
+            }
+
+            QSqlQuery consumeOne(db);
+            consumeOne.prepare(QString(
+                "UPDATE %1 "
+                "SET QUANTITE_STOCK = QUANTITE_STOCK - :qty "
+                "WHERE ID_MATIERE = :id"
+            ).arg(tableName));
+            consumeOne.bindValue(":qty", takeQty);
+            consumeOne.bindValue(":id", row.id);
+
+            if (!consumeOne.exec() || consumeOne.numRowsAffected() != 1) {
+                if (errorOut) {
+                    *errorOut = "Echec de mise a jour du stock matiere: " + consumeOne.lastError().text();
+                }
+                return false;
+            }
+
+            remaining -= takeQty;
+            details << QString("%1 (ID %2): -%3")
+                          .arg(row.type.isEmpty() ? wantedType : row.type,
+                               row.id.toString(),
+                               QString::number(takeQty));
+              usedMaterialIds << row.id.toString();
+        }
+
+        if (remaining > 0) {
+            if (errorOut) {
+                *errorOut = "Ajustement de stock incomplet (etat incoherent).";
+            }
+            return false;
+        }
+
+        if (infoOut) {
+            *infoOut = QString("Stock matiere mis a jour: -%1. %2")
+                .arg(QString::number(absoluteQty), details.join(", "));
+        }
+
+        if (usedMaterialIdsOut) {
+            *usedMaterialIdsOut = usedMaterialIds;
+        }
+
+        return true;
+    }
+
+    // qtyDelta < 0 : recredit de stock (choisit une ligne du type, sinon fallback global)
+    MaterialRow target;
+    QSqlQuery creditByType(db);
+    creditByType.prepare(QString(
+        "SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+        "FROM ("
+        "  SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+        "  FROM %1 "
+        "  WHERE UPPER(TRIM(TYPE_MATIERE)) = UPPER(TRIM(:type)) "
+        "  ORDER BY QUANTITE_STOCK DESC, ID_MATIERE ASC"
+        ") WHERE ROWNUM = 1"
+    ).arg(tableName));
+    creditByType.bindValue(":type", wantedType);
+
+    if (creditByType.exec() && creditByType.next()) {
+        target.id = creditByType.value(0);
+        target.type = creditByType.value(1).toString().trimmed();
+        target.stock = creditByType.value(2).toInt();
+    } else {
+        QSqlQuery creditAny(db);
+        creditAny.prepare(QString(
+            "SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+            "FROM ("
+            "  SELECT ID_MATIERE, TYPE_MATIERE, QUANTITE_STOCK "
+            "  FROM %1 "
+            "  ORDER BY QUANTITE_STOCK DESC, ID_MATIERE ASC"
+            ") WHERE ROWNUM = 1"
+        ).arg(tableName));
+
+        if (!creditAny.exec() || !creditAny.next()) {
+            if (errorOut) {
+                *errorOut = "Aucune matiere disponible pour ajuster le stock.";
+            }
+            return false;
+        }
+
+        target.id = creditAny.value(0);
+        target.type = creditAny.value(1).toString().trimmed();
+        target.stock = creditAny.value(2).toInt();
+    }
+
+    if (!target.id.isValid()) {
+        if (errorOut) {
+            *errorOut = "ID matiere invalide (selection impossible).";
+        }
+        return false;
+    }
+
+    QSqlQuery creditStock(db);
+    creditStock.prepare(QString(
+        "UPDATE %1 "
+        "SET QUANTITE_STOCK = QUANTITE_STOCK + :qty "
+        "WHERE ID_MATIERE = :id"
+    ).arg(tableName));
+    creditStock.bindValue(":qty", absoluteQty);
+    creditStock.bindValue(":id", target.id);
+
+    if (!creditStock.exec() || creditStock.numRowsAffected() != 1) {
+        if (errorOut) {
+            *errorOut = "Echec de mise a jour du stock matiere: " + creditStock.lastError().text();
+        }
+        return false;
+    }
+
+    if (infoOut) {
+        *infoOut = QString("Stock matiere mis a jour (%1, ID %2): +%3, nouveau stock %4.")
+            .arg(target.type.isEmpty() ? wantedType : target.type,
+                 target.id.toString(),
+                 QString::number(absoluteQty),
+                 QString::number(target.stock + absoluteQty));
+    }
+
+    return true;
+}
+
+bool consumeMaterialStockForOrder(QSqlDatabase &db,
+                                  const QString &orderType,
+                                  int orderQty,
+                                  QString *infoOut = nullptr,
+                                  QString *errorOut = nullptr,
+                                  QStringList *usedMaterialIdsOut = nullptr)
+{
+    return adjustMaterialStockForOrderDelta(db, orderType, orderQty, infoOut, errorOut, usedMaterialIdsOut);
+}
+
+QString detectOrderMaterialUsageTableName(QSqlDatabase &db)
+{
+    QStringList candidates;
+    candidates << "UTILISER"
+               << "RAYEN.UTILISER"
+               << "\"RAYEN\".\"UTILISER\""
+               << "UTILISE"
+               << "RAYEN.UTILISE"
+               << "\"RAYEN\".\"UTILISE\"";
+
+    for (const QString &candidate : candidates) {
+        QSqlQuery probe(db);
+        if (probe.exec(QString("SELECT 1 FROM %1 WHERE ROWNUM = 1").arg(candidate))) {
+            return candidate;
+        }
+    }
+
+    return {};
+}
+
+bool saveOrderMaterialUsageLinks(QSqlDatabase &db,
+                                 const QString &orderId,
+                                 const QStringList &materialIds,
+                                 QString *errorOut = nullptr)
+{
+    const QString usageTable = detectOrderMaterialUsageTableName(db);
+    if (usageTable.isEmpty()) {
+        // Ne pas bloquer la commande si la table n'existe pas dans ce schema.
+        return true;
+    }
+
+    QSqlQuery del(db);
+    del.prepare(QString("DELETE FROM %1 WHERE ID_COMMANDE = :id").arg(usageTable));
+    del.bindValue(":id", orderId);
+    if (!del.exec()) {
+        if (errorOut) {
+            *errorOut = "Echec nettoyage table UTILISER: " + del.lastError().text();
+        }
+        return false;
+    }
+
+    QStringList uniqueIds;
+    for (const QString &rawId : materialIds) {
+        const QString idTrimmed = rawId.trimmed();
+        if (idTrimmed.isEmpty()) {
+            continue;
+        }
+        if (!uniqueIds.contains(idTrimmed)) {
+            uniqueIds << idTrimmed;
+        }
+    }
+
+    for (const QString &materialId : uniqueIds) {
+        QSqlQuery ins(db);
+        ins.prepare(QString("INSERT INTO %1 (ID_COMMANDE, ID_MATIERE) VALUES (:idCommande, :idMatiere)").arg(usageTable));
+        ins.bindValue(":idCommande", orderId);
+        ins.bindValue(":idMatiere", materialId);
+
+        if (!ins.exec()) {
+            if (errorOut) {
+                *errorOut = QString("Echec insertion UTILISER (commande=%1, matiere=%2): %3")
+                    .arg(orderId, materialId, ins.lastError().text());
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool syncMaterialStockAfterOrderUpdate(QSqlDatabase &db,
+                                       const QString &oldType,
+                                       int oldQty,
+                                       const QString &newType,
+                                       int newQty,
+                                       QString *infoOut = nullptr,
+                                       QString *errorOut = nullptr)
+{
+    QStringList infos;
+
+    const QString oldNorm = oldType.trimmed();
+    const QString newNorm = newType.trimmed();
+
+    if (oldNorm.isEmpty()) {
+        QString info;
+        if (!adjustMaterialStockForOrderDelta(db, newNorm, newQty, &info, errorOut)) {
+            return false;
+        }
+        if (!info.isEmpty()) {
+            infos << info;
+        }
+    } else if (oldNorm.compare(newNorm, Qt::CaseInsensitive) == 0) {
+        const int delta = newQty - oldQty;
+        if (delta != 0) {
+            QString info;
+            if (!adjustMaterialStockForOrderDelta(db, newNorm, delta, &info, errorOut)) {
+                return false;
+            }
+            if (!info.isEmpty()) {
+                infos << info;
+            }
+        }
+    } else {
+        if (oldQty > 0) {
+            QString infoRestore;
+            if (!adjustMaterialStockForOrderDelta(db, oldNorm, -oldQty, &infoRestore, errorOut)) {
+                return false;
+            }
+            if (!infoRestore.isEmpty()) {
+                infos << ("Annulation ancien type: " + infoRestore);
+            }
+        }
+
+        if (newQty > 0) {
+            QString infoConsume;
+            if (!adjustMaterialStockForOrderDelta(db, newNorm, newQty, &infoConsume, errorOut)) {
+                return false;
+            }
+            if (!infoConsume.isEmpty()) {
+                infos << ("Application nouveau type: " + infoConsume);
+            }
+        }
+    }
+
+    if (infoOut) {
+        *infoOut = infos.join("\n");
+    }
+    return true;
 }
 
 bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, const QString &orderId, QString *errorOut = nullptr)
@@ -276,7 +535,7 @@ bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, c
         "WHERE fk.constraint_type = 'R' "
         "AND pk.table_name = :parentTable "
         "AND pkc.column_name = 'ID_COMMANDE'"
-        );
+    );
     fkQuery.bindValue(":parentTable", parentTableName.toUpper());
 
     if (!fkQuery.exec()) {
@@ -301,7 +560,7 @@ bool deleteOrderDependencies(QSqlDatabase &db, const QString &parentTableName, c
         if (!childDelete.exec()) {
             if (errorOut) {
                 *errorOut = QString("Suppression des enregistrements liés échouée (%1.%2): %3")
-                                .arg(childTable, childColumn, childDelete.lastError().text());
+                    .arg(childTable, childColumn, childDelete.lastError().text());
             }
             return false;
         }
@@ -418,16 +677,267 @@ QString loadKey(const QString &keyName)
     return {};
 }
 
+const QRegularExpression &emailPattern()
+{
+    static const QRegularExpression kEmailPattern(
+        "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
+    );
+    return kEmailPattern;
 }
 
-MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
+const QRegularExpression &phonePattern()
+{
+    static const QRegularExpression kPhonePattern(
+        "^\\+?[0-9][0-9\\s\\-]{6,18}$"
+    );
+    return kPhonePattern;
+}
+
+bool isValidEmail(const QString &email)
+{
+    const QString trimmed = email.trimmed();
+    return !trimmed.isEmpty() && emailPattern().match(trimmed).hasMatch();
+}
+
+bool isValidPhone(const QString &phone)
+{
+    const QString trimmed = phone.trimmed();
+    if (trimmed.isEmpty() || !phonePattern().match(trimmed).hasMatch()) {
+        return false;
+    }
+
+    int digitCount = 0;
+    for (const QChar ch : trimmed) {
+        if (ch.isDigit()) {
+            ++digitCount;
+        }
+    }
+    return digitCount >= 8 && digitCount <= 15;
+}
+
+bool isPositiveIntegerText(const QString &text)
+{
+    bool ok = false;
+    const int value = text.trimmed().toInt(&ok);
+    return ok && value > 0;
+}
+
+bool isPlaceholderSelection(const QString &text)
+{
+    const QString normalized = text.trimmed().toLower();
+    return normalized.isEmpty()
+        || normalized.startsWith("--")
+        || normalized.contains("selectionner")
+        || normalized.contains(QString::fromUtf8("sélectionner"));
+}
+
+bool isValidPersonName(const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    static const QRegularExpression kNamePattern("^[A-Za-zÀ-ÖØ-öø-ÿ' -]{2,80}$");
+    return kNamePattern.match(trimmed).hasMatch();
+}
+
+bool isCancelledOrderStatus(const QString &status)
+{
+    const QString normalized = status.trimmed().toLower();
+    return normalized.contains("annul") || normalized.contains("cancel");
+}
+
+void ensureCancelledStatusOption(QComboBox *combo)
+{
+    if (!combo) {
+        return;
+    }
+
+    for (int i = 0; i < combo->count(); ++i) {
+        if (isCancelledOrderStatus(combo->itemText(i))) {
+            return;
+        }
+    }
+
+    combo->addItem(QString::fromUtf8("Annulée"));
+}
+
+bool hasMeaningfulText(const QString &text)
+{
+    int symbols = 0;
+    for (const QChar c : text) {
+        if (c.isLetterOrNumber()) {
+            ++symbols;
+        }
+    }
+    return symbols >= 2;
+}
+
+struct MailStatusPalette {
+    QString label;
+    QString textColor;
+    QString backgroundColor;
+    QString borderColor;
+};
+
+MailStatusPalette resolveMailStatusPalette(const QString &rawStatus)
+{
+    const QString normalized = rawStatus.trimmed().toLower();
+
+    MailStatusPalette palette;
+    palette.label = rawStatus.trimmed();
+    if (palette.label.isEmpty()) {
+        palette.label = "Non defini";
+    }
+
+    if (normalized.contains("retard")) {
+        palette.textColor = "#8b1e1e";
+        palette.backgroundColor = "#fdecec";
+        palette.borderColor = "#e7a3a3";
+    } else if (normalized.contains(QString::fromUtf8("attente"))) {
+        palette.textColor = "#805200";
+        palette.backgroundColor = "#fff4de";
+        palette.borderColor = "#f0cf94";
+    } else if (normalized.contains(QString::fromUtf8("en cours")) || normalized.contains("cours")) {
+        palette.textColor = "#0f4b6e";
+        palette.backgroundColor = "#e3f3fb";
+        palette.borderColor = "#9bc8e0";
+    } else if (normalized.contains(QString::fromUtf8("prête")) || normalized.contains("prete") || normalized.contains("livraison")) {
+        palette.textColor = "#1f5c2e";
+        palette.backgroundColor = "#e8f6ea";
+        palette.borderColor = "#a8d3b0";
+    } else if (normalized.contains(QString::fromUtf8("compl")) || normalized.contains("termine") || normalized.contains("complete")) {
+        palette.textColor = "#30518a";
+        palette.backgroundColor = "#e8eefb";
+        palette.borderColor = "#adc0e9";
+    } else {
+        palette.textColor = "#5e3a28";
+        palette.backgroundColor = "#f5ece3";
+        palette.borderColor = "#d8bca8";
+    }
+
+    return palette;
+}
+
+QString statusBadgeHtml(const QString &statusText)
+{
+    const MailStatusPalette palette = resolveMailStatusPalette(statusText);
+    return QString(
+        "<span style='display:inline-block;padding:6px 14px;border-radius:999px;"
+        "background:%1;color:%2;border:1px solid %3;font-weight:700;font-size:12px;'>%4</span>"
+    ).arg(
+        palette.backgroundColor,
+        palette.textColor,
+        palette.borderColor,
+        palette.label.toHtmlEscaped()
+    );
+}
+
+QString detailRowHtml(const QString &label, const QString &value)
+{
+    const QString safeValue = value.trimmed().isEmpty() ? "-" : value.trimmed();
+    return QString(
+        "<tr>"
+        "<td style='padding:10px 0;border-bottom:1px solid #efe1d6;color:#6d5647;width:44%%;'><strong>%1</strong></td>"
+        "<td style='padding:10px 0;border-bottom:1px solid #efe1d6;color:#2f241d;'>%2</td>"
+        "</tr>"
+    ).arg(label.toHtmlEscaped(), safeValue.toHtmlEscaped());
+}
+
+QString detailStatusRowHtml(const QString &label, const QString &status)
+{
+    return QString(
+        "<tr>"
+        "<td style='padding:10px 0;border-bottom:1px solid #efe1d6;color:#6d5647;width:44%%;'><strong>%1</strong></td>"
+        "<td style='padding:10px 0;border-bottom:1px solid #efe1d6;'>%2</td>"
+        "</tr>"
+    ).arg(label.toHtmlEscaped(), statusBadgeHtml(status));
+}
+
+QString changesBlockHtml(const QString &rawChanges)
+{
+    if (rawChanges.trimmed().isEmpty()) {
+        return {};
+    }
+
+    QString items;
+    const QStringList lines = rawChanges.split('\n', Qt::SkipEmptyParts);
+    for (QString line : lines) {
+        line = line.trimmed();
+        while (!line.isEmpty() && (line.startsWith(QChar(0x2022)) || line.startsWith('-'))) {
+            line.remove(0, 1);
+            line = line.trimmed();
+        }
+        if (line.isEmpty()) {
+            continue;
+        }
+        items += QString("<li style='margin:0 0 8px 0;'>%1</li>").arg(line.toHtmlEscaped());
+    }
+
+    if (items.isEmpty()) {
+        return {};
+    }
+
+    return QString(
+        "<div style='margin-top:20px;background:#fff3df;border:1px solid #f2d3a1;border-radius:14px;padding:16px 18px;'>"
+        "<h3 style='margin:0 0 10px 0;color:#7a4a10;font-size:16px;'>Modifications effectuees</h3>"
+        "<ul style='margin:0;padding-left:20px;color:#5a3a24;line-height:1.6;'>%1</ul>"
+        "</div>"
+    ).arg(items);
+}
+
+QString detailsCardHtml(const QString &title, const QString &rows, const QString &borderColor)
+{
+    return QString(
+        "<div style='margin-top:18px;background:#ffffff;border:1px solid %3;border-radius:14px;padding:16px 18px;'>"
+        "<h3 style='margin:0 0 12px 0;color:#3d2b20;font-size:18px;'>%1</h3>"
+        "<table style='width:100%%;border-collapse:collapse;'>%2</table>"
+        "</div>"
+    ).arg(title.toHtmlEscaped(), rows, borderColor);
+}
+
+QString wrapMailTemplate(const QString &headline,
+                         const QString &subline,
+                         const QString &accentStart,
+                         const QString &accentEnd,
+                         const QString &bodyHtml)
+{
+    return QString(
+        "<html><body style='margin:0;padding:24px;background:#f2ede8;font-family:Segoe UI, Trebuchet MS, Arial, sans-serif;color:#2f241d;'>"
+        "<div style='max-width:760px;margin:0 auto;background:#fffaf5;border:1px solid #e5d4c6;border-radius:18px;overflow:hidden;'>"
+        "<div style='padding:26px 30px;background:linear-gradient(135deg,%1,%2);'>"
+        "<h2 style='margin:0;color:#ffffff;font-size:24px;font-weight:700;'>%3</h2>"
+        "<p style='margin:8px 0 0 0;color:#f9efe7;font-size:14px;'>%4</p>"
+        "</div>"
+        "<div style='padding:24px 30px;'>%5"
+        "<p style='margin:24px 0 0 0;color:#7f6756;font-size:12px;'>"
+        "Ceci est un email automatique, merci de ne pas y repondre."
+        "</p>"
+        "</div>"
+        "</div>"
+        "</body></html>"
+    ).arg(
+        accentStart,
+        accentEnd,
+        headline.toHtmlEscaped(),
+        subline.toHtmlEscaped(),
+        bodyHtml
+    );
+}
+
+}
+
+MainWindow::MainWindow(const QString &loggedEmail, QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , m_userEmail(userEmail)
+    , m_loggedEmail(loggedEmail)
 {
-    qDebug() << "MainWindow constructor start";
     ui->setupUi(this);
-    qDebug() << "UI setup done";
+
+    // Garantir que le statut d'annulation est toujours disponible.
+    ensureCancelledStatusOption(ui->cb_status);
+    ensureCancelledStatusOption(ui->cb_status_update);
 
     // Style commun pour les barres de boutons (toutes les tâches)
     buttonBarStyle = "QPushButton{padding:10px 16px;border:1px solid #C68E65;border-radius:8px;background:#f7ede4;color:#3b2a20;font-weight:600;}"
@@ -447,7 +957,6 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     if (ui->verticalLayout_material) {
         ui->verticalLayout_material->addWidget(materialsWindow);
     }
-    qDebug() << "MaterialsWindow created";
 
     // Supprimer le titre "GESTION DES MATIÈRES PREMIÈRES" pour gagner de l'espace
     if (ui->label_material) {
@@ -472,14 +981,14 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
 
     // Masquer les champs UI non presents dans le schema (ville, cinEmploye)
     if (ui->cb_client_city) ui->cb_client_city->setVisible(false);
-    if (ui->label_order_city) ui->label_order_city->setVisible(false);
+    if (ui->label4) ui->label4->setVisible(false);
     if (ui->le_proof) ui->le_proof->setVisible(false);
-    if (ui->label_order_employee_cin) ui->label_order_employee_cin->setVisible(false);
+    if (ui->label9) ui->label9->setVisible(false);
 
     if (ui->cb_city_update) ui->cb_city_update->setVisible(false);
-    if (ui->label_update_city) ui->label_update_city->setVisible(false);
+    if (ui->label14) ui->label14->setVisible(false);
     if (ui->le_proof_update) ui->le_proof_update->setVisible(false);
-    if (ui->label_update_employee_cin) ui->label_update_employee_cin->setVisible(false);
+    if (ui->label19) ui->label19->setVisible(false);
 
     if (ui->lbl_main_top_city_title) ui->lbl_main_top_city_title->setVisible(false);
     if (ui->lbl_main_top_city_value) ui->lbl_main_top_city_value->setVisible(false);
@@ -503,18 +1012,22 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             "QLineEdit:placeholder{color:#8c715f;}"
             "QComboBox{background:#fff;border:1px solid #C68E65;border-radius:6px;color:#3b2a20;padding:6px;font-weight:600;}"
             "QComboBox QAbstractItemView{background:#fff;border:1px solid #C68E65;color:#3b2a20;}"
-            );
+        );
     };
     styleSearchField(ui->le_search);
     styleSearchField(ui->cb_sort);
     styleSearchField(ui->le_id_update_search);
+
+    if (ui->cb_sort && ui->cb_sort->findText("Trier par ID") == -1) {
+        ui->cb_sort->addItem("Trier par ID");
+    }
 
     // Validation pour ID : accepter UNIQUEMENT des nombres positifs
     if (ui->le_id) {
         // Validateur Qt : force les nombres entiers positifs (1 à 2147483647)
         QIntValidator *idValidator = new QIntValidator(1, 2147483647, ui->le_id);
         ui->le_id->setValidator(idValidator);
-
+        
         // Coloration visuelle pendant la saisie
         connect(ui->le_id, &QLineEdit::textChanged, this, [=](const QString &text) {
             bool valid = !text.isEmpty();
@@ -644,19 +1157,19 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             "QPushButton{background:#8B4513;color:white;padding:10px;border-radius:8px;font-weight:600;}"
             "QPushButton:hover{background:#a05a22;}"
             "QPushButton:pressed{background:#723a0f;}"
-            );
+        );
     };
 
     for (QPushButton *btn : {
-             ui->btn_valider,
-             ui->btn_update_confirm,
-             ui->btn_delete_action,
-             ui->btn_search_update,
-             ui->btn_pdf,
-             ui->btn_stat_price_asc,
-             ui->btn_stat_price_desc,
-             ui->btn_stat_type
-         }) {
+        ui->btn_valider,
+        ui->btn_update_confirm,
+        ui->btn_delete_action,
+        ui->btn_search_update,
+        ui->btn_pdf,
+        ui->btn_stat_price_asc,
+        ui->btn_stat_price_desc,
+        ui->btn_stat_type
+    }) {
         stylePrimaryBtn(btn);
     }
 
@@ -675,17 +1188,79 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         ui->statsMainGrid->setColumnStretch(0, 1);
         ui->statsMainGrid->setColumnStretch(1, 1);
         ui->statsMainGrid->setColumnStretch(2, 1);
+        ui->statsMainGrid->setHorizontalSpacing(14);
+        ui->statsMainGrid->setVerticalSpacing(14);
     }
     if (ui->scrollArea_stats) {
         ui->scrollArea_stats->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         ui->scrollArea_stats->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     }
 
+    if (ui->label_stats_title) {
+        ui->label_stats_title->setText("TABLEAU DE BORD COMMANDES");
+        ui->label_stats_title->setStyleSheet(
+            "font-size: 30px;"
+            "font-weight: 800;"
+            "letter-spacing: 1px;"
+            "color: #4a2f22;"
+            "padding: 18px 12px;"
+        );
+    }
+
+    if (ui->lbl_main_chart_title) {
+        ui->lbl_main_chart_title->setText("REPARTITION PAR TYPE DE PRODUIT");
+        ui->lbl_main_chart_title->setStyleSheet(
+            "font-size: 19px;"
+            "font-weight: 800;"
+            "color: #3d2b20;"
+            "padding-bottom: 6px;"
+        );
+    }
+
+    for (QFrame *card : {ui->stat_main_card_orders, ui->stat_main_card_revenue, ui->stat_main_card_pending}) {
+        if (card) {
+            card->setMinimumHeight(160);
+        }
+    }
+
+    for (QLabel *titleLbl : {ui->lbl_main_orders_title, ui->lbl_main_revenue_title, ui->lbl_main_pending_title}) {
+        if (!titleLbl) continue;
+        titleLbl->setStyleSheet("font-size:14px;font-weight:700;color:white;background:transparent;border:none;padding:0;");
+    }
+    for (QLabel *valueLbl : {ui->lbl_main_orders_value, ui->lbl_main_revenue_value, ui->lbl_main_pending_value}) {
+        if (!valueLbl) continue;
+        valueLbl->setMinimumHeight(58);
+        valueLbl->setAlignment(Qt::AlignCenter);
+        valueLbl->setStyleSheet("font-size:34px;font-weight:800;color:white;background:transparent;border:none;padding:0;");
+    }
+
+    if (ui->stats_chart_frame) {
+        ui->stats_chart_frame->setStyleSheet(
+            "QFrame{"
+            "background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fffdfb,stop:1 #f8efe8);"
+            "border:1px solid #d8c3b3;"
+            "border-radius:16px;"
+            "padding:18px;"
+            "}"
+        );
+    }
+
+    if (ui->stats_main_details_container) {
+        ui->stats_main_details_container->setStyleSheet(
+            "QFrame{"
+            "background:#fffdfb;"
+            "border:1px solid #d8c3b3;"
+            "border-radius:16px;"
+            "padding:16px;"
+            "}"
+        );
+    }
+
     // Stats chart: pie chart by order type
     if (ui->chartMainLayout) {
         auto chartView = new QChartView(ui->stats_chart_frame);
         chartView->setObjectName("typePieChartView");
-        chartView->setMinimumHeight(240);
+        chartView->setMinimumHeight(300);
         chartView->setRenderHint(QPainter::Antialiasing, true);
         chartView->setStyleSheet("background: transparent;");
         ui->chartMainLayout->insertWidget(1, chartView);
@@ -704,17 +1279,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     }
 
     // Harmoniser le fond et les cadres des pages Commandes
-    const QString ordersBg = "background-color: #fdf7f2;";
-    auto setPageBg = [&](QWidget *w){ if (w) w->setStyleSheet(ordersBg); };
-    setPageBg(ui->page_add);
-    setPageBg(ui->page_update);
-    setPageBg(ui->page_delete);
-    setPageBg(ui->page_list);
-    setPageBg(ui->page_stats);
-    setPageBg(ui->page_email_auto);
-    setPageBg(ui->page_calendar);
-
-    const QString ordersPanel = "background:#ffffff;border:1px solid #C68E65;border-radius:10px;";
+    const QString ordersPanel = "background:#fffdfb;border:1px solid #C68E65;border-radius:10px;";
     const QString scrollBarStyle =
         "QScrollBar:vertical{background:#fdf7f2;width:14px;margin:4px 0;border:1px solid #C68E65;border-radius:7px;}"
         "QScrollBar::handle:vertical{background:#8B4513;min-height:24px;border-radius:6px;}"
@@ -725,7 +1290,13 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     auto applyScrollStyle = [&](QWidget *w){ if (w) w->setStyleSheet(w->styleSheet() + scrollBarStyle); };
     auto applyOrdersPanel = [&](QWidget *page){
         if (!page) return;
-        page->setStyleSheet(ordersBg + ordersPanel + scrollBarStyle);
+        // Scope le style au conteneur de page uniquement (évite de styliser tous les labels/enfants).
+        const QString objectName = page->objectName().trimmed();
+        if (!objectName.isEmpty()) {
+            page->setStyleSheet(QString("#%1{%2}").arg(objectName, ordersPanel));
+        } else {
+            page->setStyleSheet(ordersPanel);
+        }
         if (auto *lay = page->layout()) {
             lay->setContentsMargins(20, 20, 20, 20);
             lay->setSpacing(16);
@@ -736,12 +1307,104 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     applyOrdersPanel(ui->page_delete);
     applyOrdersPanel(ui->page_list);
     applyOrdersPanel(ui->page_stats);
+    applyOrdersPanel(ui->page_calendar);
 
     // Scrollbars brun sur les widgets listés des pages commandes
     applyScrollStyle(ui->table_list);
     applyScrollStyle(ui->table_delete);
     applyScrollStyle(ui->scrollArea_stats);
     applyScrollStyle(ui->tabWidget_stats);
+    applyScrollStyle(ui->list_deliveries);
+
+    // Calendrier: style premium cohérent avec les pages stats
+    if (ui->label_calendar_title) {
+        ui->label_calendar_title->setText("CALENDRIER DES LIVRAISONS");
+        ui->label_calendar_title->setStyleSheet(
+            "font-size: 30px;"
+            "font-weight: 800;"
+            "letter-spacing: 1px;"
+            "color: #4a2f22;"
+            "padding: 18px 12px;"
+        );
+    }
+
+    if (ui->calendar_container) {
+        ui->calendar_container->setStyleSheet(
+            "QFrame#calendar_container{"
+            "background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fffdfb,stop:1 #f8efe8);"
+            "border:1px solid #d8c3b3;"
+            "border-radius:16px;"
+            "padding:14px;"
+            "}"
+        );
+    }
+
+    if (ui->calendarWidget) {
+        ui->calendarWidget->setStyleSheet(
+            "QCalendarWidget{background:#fffaf5;border:1px solid #d8c3b3;border-radius:12px;}"
+            "QCalendarWidget QWidget#qt_calendar_navigationbar{background:#f5e8dd;border:1px solid #e7d3c3;border-radius:10px;}"
+            "QCalendarWidget QToolButton{color:#4a2f22;background:#fff7f0;border:1px solid #d9c3b0;border-radius:8px;padding:6px 10px;font-weight:700;}"
+            "QCalendarWidget QToolButton:hover{background:#f2ddcb;}"
+            "QCalendarWidget QSpinBox,QCalendarWidget QComboBox{color:#4a2f22;background:#fff7f0;border:1px solid #d9c3b0;border-radius:8px;padding:4px 8px;font-weight:700;}"
+            "QCalendarWidget QTableView{background:#fffaf5;alternate-background-color:#fffaf5;selection-background-color:#f7d974;selection-color:#2d221a;gridline-color:#ead9cb;outline:0;}"
+            "QCalendarWidget QAbstractItemView:enabled{color:#2f241d;background:#fffaf5;selection-background-color:#f7d974;selection-color:#2d221a;}"
+            "QCalendarWidget QHeaderView::section{background:#f5e8dd;color:#6b4c37;border:1px solid #e7d3c3;padding:6px;font-weight:700;}"
+        );
+    }
+
+    if (ui->deliveries_list_container) {
+        ui->deliveries_list_container->setStyleSheet(
+            "QFrame#deliveries_list_container{"
+            "background:#fffdfb;"
+            "border:1px solid #d8c3b3;"
+            "border-radius:16px;"
+            "padding:14px;"
+            "}"
+        );
+    }
+
+    if (ui->calendar_stats_container) {
+        ui->calendar_stats_container->setStyleSheet(
+            "QFrame#calendar_stats_container{"
+            "background:#fffdfb;"
+            "border:1px solid #d8c3b3;"
+            "border-radius:16px;"
+            "padding:16px;"
+            "}"
+        );
+    }
+
+    if (ui->list_deliveries) {
+        ui->list_deliveries->setStyleSheet(
+            "QListWidget{background:#ffffff;color:#3D362D;border:1px solid #d9c3b0;border-radius:10px;}"
+            "QListWidget::item{padding:10px;border-bottom:1px solid #f1dfd1;}"
+            "QListWidget::item:selected{background:#C68E65;color:white;}"
+        );
+    }
+
+    if (ui->btn_export_calendar) {
+        ui->btn_export_calendar->setMinimumHeight(46);
+        ui->btn_export_calendar->setStyleSheet(
+            "QPushButton{background:#8B4513;color:white;padding:10px 18px;border-radius:10px;font-weight:700;border:none;}"
+            "QPushButton:hover{background:#a05a22;}"
+            "QPushButton:pressed{background:#723a0f;}"
+        );
+    }
+
+    for (QLabel *legendLbl : {ui->lbl_legend_today, ui->lbl_legend_delivery, ui->lbl_legend_urgent}) {
+        if (!legendLbl) continue;
+        legendLbl->setStyleSheet("font-size:13px;font-weight:700;color:#5a3a24;background:transparent;border:none;padding:2px 4px;");
+    }
+
+    for (QLabel *titleLbl : {ui->lbl_this_week_title, ui->lbl_this_month_title, ui->lbl_overdue_title}) {
+        if (!titleLbl) continue;
+        titleLbl->setStyleSheet("font-size:13px;font-weight:700;color:white;background:transparent;border:none;padding:0;");
+    }
+    for (QLabel *valueLbl : {ui->lbl_this_week_value, ui->lbl_this_month_value, ui->lbl_overdue_value}) {
+        if (!valueLbl) continue;
+        valueLbl->setMinimumHeight(56);
+        valueLbl->setStyleSheet("font-size:32px;font-weight:800;color:white;background:transparent;border:none;padding:0;");
+    }
 
     // Sidebar: teinte cuir plus chaleureuse
     if (ui->sidebar) {
@@ -750,11 +1413,12 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #5e4334, stop:1 #3b2b21);"
             "border-right: 2px solid #C68E65;"
             "}"
-            );
+        );
     }
 
     aiNetwork = new QNetworkAccessManager(this);
     geminiApiKey = loadKey("GEMINI_API_KEY");
+    geminiPreferredModel = loadKey("GEMINI_MODEL").trimmed();
 
     // Connexion des boutons du menu supérieur pour changer de page
     applyBarStyle({ui->btn_tab_add, ui->btn_tab_update, ui->btn_tab_delete, ui->btn_tab_list, ui->btn_tab_stats, ui->btn_tab_email_auto, ui->btn_tab_calendar}, false);
@@ -805,9 +1469,6 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     connect(ui->btn_nav_employees, &QPushButton::clicked, this, [=]() {
         ui->stackedWidget->setCurrentWidget(ui->page_employees);
         ui->top_nav->setVisible(false);
-        // Afficher directement l'onglet "Liste / Stats" et charger les données
-        if (employeeTabButtons.size() > 3 && employeeTabButtons[3])
-            employeeTabButtons[3]->click();
     });
 
     // 4. FOURNISSEURS
@@ -816,7 +1477,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         ui->top_nav->setVisible(false);
     });
 
-    // 5. ASSISTANT IA
+    // 5. CHAT BOT
     connect(ui->btn_nav_ai, &QPushButton::clicked, this, [=]() {
         ui->stackedWidget->setCurrentWidget(ui->page_ai);
         ui->top_nav->setVisible(false);
@@ -825,29 +1486,45 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     auto handleAiSend = [=]() {
         if (!ui->le_ai_input) return;
         const QString userText = ui->le_ai_input->text().trimmed();
-        if (userText.isEmpty()) return;
+        if (userText.isEmpty()) {
+            QMessageBox::warning(this, "Saisie requise", "Veuillez écrire une question avant d'envoyer.");
+            ui->le_ai_input->setFocus();
+            return;
+        }
+        if (userText.size() > 300) {
+            QMessageBox::warning(this, "Saisie trop longue", "La question ne doit pas dépasser 300 caractères.");
+            ui->le_ai_input->setFocus();
+            return;
+        }
+        if (!hasMeaningfulText(userText)) {
+            QMessageBox::warning(this, "Saisie invalide", "Veuillez saisir une question lisible.");
+            ui->le_ai_input->setFocus();
+            return;
+        }
         ui->le_ai_input->clear();
         sendAiMessage(userText);
     };
 
     if (ui->tb_ai_log) {
         ui->tb_ai_log->setOpenExternalLinks(true);
-        const bool envSet = qEnvironmentVariableIsSet("GEMINI_API_KEY");
-        const int envLen = envSet ? qgetenv("GEMINI_API_KEY").size() : 0;
-        QString intro;
-        if (geminiApiKey.isEmpty()) {
-            intro = envSet
-                        ? QString("Clé Gemini non lue (env présente, taille %1). Relancez depuis ce terminal ou placez .env.local.").arg(envLen)
-                        : "Mode connecté prêt. Configurez GEMINI_API_KEY ou .env.local pour activer les réponses IA.";
+        if (!geminiApiKey.trimmed().isEmpty()) {
+            appendAiMessage("Chat Bot", "Mode intelligent actif. Je peux répondre à presque toutes vos questions.");
         } else {
-            intro = "Connexion Gemini prête. Posez vos questions sur les matières et les stocks.";
+            appendAiMessage("Chat Bot", "Mode local actif. Je réponds aux questions limitées: salutation, stock, alertes, statistiques, conseils.");
         }
-        appendAiMessage("Assistant", intro);
+    }
+    if (ui->label_ai_intro) {
+        if (!geminiApiKey.trimmed().isEmpty()) {
+            ui->label_ai_intro->setText("Chat Bot intelligent: posez vos questions librement (gestion, métier, ou général).");
+        } else {
+            ui->label_ai_intro->setText("Chat Bot local: posez des questions courtes sur les matières et le stock.");
+        }
     }
     if (ui->btn_ai_send) {
         connect(ui->btn_ai_send, &QPushButton::clicked, this, handleAiSend);
     }
     if (ui->le_ai_input) {
+        ui->le_ai_input->setMaxLength(300);
         connect(ui->le_ai_input, &QLineEdit::returnPressed, this, handleAiSend);
     }
 
@@ -859,45 +1536,10 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
     setupEmployeeUI();
     refreshSupplierTable();
 
-    // ── Restrictions d'accès selon le rôle ──────────────────────────────
-    // admin@ → accès complet
-    // manager@ → Commandes uniquement
-    // employe@ → Employés uniquement
-    // contact@ → Fournisseurs uniquement
-    bool isAdmin    = m_userEmail.startsWith("admin@");
-    bool isManager  = m_userEmail.startsWith("manager@");
-    bool isEmploye  = m_userEmail.startsWith("employe@");
-    bool isContact  = m_userEmail.startsWith("contact@");
-
-    auto hideNav = [&](QPushButton *btn) {
-        if (btn) { btn->setVisible(false); btn->setEnabled(false); }
-    };
-
-    if (!isAdmin) {
-        // Masquer les sections non autorisées
-        if (!isManager) hideNav(ui->btn_nav_orders);
-        if (!isEmploye) hideNav(ui->btn_nav_employees);
-        if (!isContact) hideNav(ui->btn_nav_suppliers);
-        // Matières et IA : admin seulement
-        hideNav(ui->btn_nav_material);
-        hideNav(ui->btn_nav_ai);
-        // Masquer le menu top (commandes) si pas manager
-        if (!isManager) ui->top_nav->setVisible(false);
+    // Activer l'animation pour tous les boutons déjà présents dans la fenêtre.
+    for (QPushButton *btn : this->findChildren<QPushButton*>()) {
+        ButtonAnimationHelper::setupLuxuryButtonAnimation(btn);
     }
-
-    // Naviguer directement vers la page autorisée
-    if (isManager) {
-        reloadOrdersFromDb();
-        ui->stackedWidget->setCurrentWidget(ui->page_list);
-        ui->top_nav->setVisible(true);
-    } else if (isEmploye) {
-        ui->stackedWidget->setCurrentWidget(ui->page_employees);
-        if (employeeTabButtons.size() > 3 && employeeTabButtons[3])
-            employeeTabButtons[3]->click();
-    } else if (isContact) {
-        ui->stackedWidget->setCurrentWidget(ui->page_suppliers);
-    }
-    // ────────────────────────────────────────────────────────────────────
 
     // --- FONCTIONNALITÉ ENREGISTRER (Ajout dans le tableau) ---
     connect(ui->btn_valider, &QPushButton::clicked, this, [=]() {
@@ -927,7 +1569,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         }
 
         // Validation Type
-        if (type.isEmpty() || type == "Sélectionner un type") {
+        if (isPlaceholderSelection(type)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Veuillez sélectionner un type d'article.");
             ui->cb_article_type->setFocus();
             return;
@@ -951,8 +1593,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->le_client_email->setFocus();
             return;
         }
-        QRegularExpression emailRegex("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b");
-        if (!emailRegex.match(email).hasMatch()) {
+        if (!isValidEmail(email)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Format email invalide (ex: client@example.com).");
             ui->le_client_email->setFocus();
             return;
@@ -989,7 +1630,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         }
 
         // Validation Statut
-        if (status.isEmpty() || status == "Sélectionner un statut") {
+        if (isPlaceholderSelection(status)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Veuillez sélectionner un statut.");
             ui->cb_status->setFocus();
             return;
@@ -1015,55 +1656,94 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
         qDebug() << "Insertion dans la table" << tableName;
 
-        const OrderColumns cols = detectOrderColumns(db, tableName);
-        if (!cols.valid) {
-            const QStringList realCols = getTableColumns(db, tableName);
-            QMessageBox::critical(this, "Erreur Base de données",
-                                  QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2\n\n"
-                                          "Ajoutez vos noms de colonnes dans detectOrderColumns().")
-                                      .arg(tableName, realCols.join(", ")));
-            return;
+        // Eviter ORA-00001: verifier explicitement si l'ID existe deja.
+        {
+            QSqlQuery checkId(db);
+            checkId.prepare(QString("SELECT COUNT(*) FROM %1 WHERE ID_COMMANDE = :id").arg(tableName));
+            checkId.bindValue(":id", id);
+
+            if (!checkId.exec() || !checkId.next()) {
+                QMessageBox::critical(this, "Erreur Base de donnees",
+                    "Impossible de verifier l'unicite de l'ID commande.\n" + checkId.lastError().text());
+                return;
+            }
+
+            if (checkId.value(0).toInt() > 0) {
+                QMessageBox::warning(this, "ID deja utilise",
+                    "Ce numero de commande existe deja.\n"
+                    "Choisissez un autre ID commande.");
+                ui->le_id->setFocus();
+                ui->le_id->selectAll();
+                return;
+            }
         }
 
-        // Construire INSERT dynamiquement
-        QStringList insCols = {cols.id};
-        QStringList insVals = {":id"};
-        if (!cols.type.isEmpty())    { insCols << cols.type;    insVals << ":type"; }
-        if (!cols.qty.isEmpty())     { insCols << cols.qty;     insVals << ":qty"; }
-        if (!cols.email.isEmpty())   { insCols << cols.email;   insVals << ":email"; }
-        if (!cols.status.isEmpty())  { insCols << cols.status;  insVals << ":status"; }
-        if (!cols.dateCmd.isEmpty()) { insCols << cols.dateCmd; insVals << ":date"; }
-        if (!cols.dateLivr.isEmpty()){ insCols << cols.dateLivr;insVals << ":dateDel"; }
-        if (!cols.price.isEmpty())   { insCols << cols.price;   insVals << ":price"; }
-        if (!cols.cin.isEmpty())     { insCols << cols.cin;     insVals << ":cin"; }
-
         QSqlQuery query(db);
-        query.prepare(QString("INSERT INTO %1 (%2) VALUES (%3)")
-                          .arg(tableName, insCols.join(", "), insVals.join(", ")));
+        query.prepare(QString(
+            "INSERT INTO %1 (ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, "
+            "STATUT, DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE) "
+            "VALUES (:id, :type, :qty, :email, :status, :date, :dateDel, :price, :cin)"
+        ).arg(tableName));
+        
         query.bindValue(":id", id);
-        if (!cols.type.isEmpty())    query.bindValue(":type",    type);
-        if (!cols.qty.isEmpty())     query.bindValue(":qty",     qty);
-        if (!cols.email.isEmpty())   query.bindValue(":email",   email);
-        if (!cols.status.isEmpty())  query.bindValue(":status",  status);
-        if (!cols.dateCmd.isEmpty()) query.bindValue(":date",    dateOrder);
-        if (!cols.dateLivr.isEmpty())query.bindValue(":dateDel", dateDel);
-        if (!cols.price.isEmpty())   query.bindValue(":price",   price);
-        if (!cols.cin.isEmpty())     query.bindValue(":cin",     QString::fromLatin1(kDefaultEmployeeCin));
-
+        query.bindValue(":type", type);
+        query.bindValue(":qty", qty);
+        query.bindValue(":email", email);
+        query.bindValue(":status", status);
+        query.bindValue(":date", dateOrder);
+        query.bindValue(":dateDel", dateDel);
+        query.bindValue(":price", price);
+        query.bindValue(":cin", QString::fromLatin1(kDefaultEmployeeCin));
+        
         if (!query.exec()) {
-            QMessageBox::critical(this, "Erreur Base de données",
-                                  "Erreur lors de l'insertion dans la base de données:\n" + query.lastError().text());
-            qDebug() << "Erreur SQL:" << query.lastError().text();
+            const QString sqlError = query.lastError().text();
+            if (sqlError.contains("ORA-00001", Qt::CaseInsensitive)) {
+                QMessageBox::warning(this, "Contrainte unique", 
+                    "Insertion refusee: une valeur unique existe deja (ex: ID commande deja utilise).\n"
+                    "Merci de verifier les champs uniques puis reessayer.");
+            } else {
+                QMessageBox::critical(this, "Erreur Base de donnees", 
+                    "Erreur lors de l'insertion dans la base de donnees:\n" + sqlError);
+            }
+            qDebug() << "Erreur SQL:" << sqlError;
             return;
         }
 
         if (query.numRowsAffected() != 1) {
             qDebug() << "INSERT exécuté mais lignes affectées =" << query.numRowsAffected();
+        }
+
+        QString stockUpdateInfo;
+        QString stockUpdateError;
+        QStringList usedMaterialIds;
+        if (!consumeMaterialStockForOrder(db, type, qty, &stockUpdateInfo, &stockUpdateError, &usedMaterialIds)) {
+            QSqlQuery rollbackQuery(db);
+            if (!rollbackQuery.exec("ROLLBACK")) {
+                qDebug() << "Erreur ROLLBACK (insert):" << rollbackQuery.lastError().text();
+            }
+
+            QMessageBox::critical(this, "Stock matiere",
+                "Commande annulee: impossible de mettre a jour le stock matiere.\n" + stockUpdateError);
+            qDebug() << "Echec destockage matiere:" << stockUpdateError;
+            return;
+        }
+
+        QString usageSaveError;
+        if (!saveOrderMaterialUsageLinks(db, id, usedMaterialIds, &usageSaveError)) {
+            QSqlQuery rollbackQuery(db);
+            if (!rollbackQuery.exec("ROLLBACK")) {
+                qDebug() << "Erreur ROLLBACK (insert links):" << rollbackQuery.lastError().text();
+            }
+
+            QMessageBox::critical(this, "Table UTILISER",
+                "Commande annulee: impossible d'enregistrer les liens commande-matiere.\n" + usageSaveError);
+            qDebug() << "Echec insertion UTILISER:" << usageSaveError;
+            return;
         }
 
         // Valider la transaction avec COMMIT
@@ -1083,9 +1763,9 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
                 int count = verify.value(0).toInt();
                 qDebug() << "Vérification insertion (count) =" << count;
                 if (count == 0) {
-                    QMessageBox::warning(this, "Attention",
-                                         "INSERT OK mais la ligne n'apparaît pas dans la table vérifiée.\n"
-                                         "Ca arrive si vous n'êtes pas sur le même schéma/utilisateur dans SQL Developer.");
+                    QMessageBox::warning(this, "Attention", 
+                        "INSERT OK mais la ligne n'apparaît pas dans la table vérifiée.\n"
+                        "Ca arrive si vous n'êtes pas sur le même schéma/utilisateur dans SQL Developer.");
                 }
             }
         }
@@ -1094,6 +1774,9 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
 
         // Rafraîchir depuis la BD pour que la Liste/Supprimer/Modifier affichent tout
         reloadOrdersFromDb();
+        if (materialsWindow) {
+            materialsWindow->refreshFromDb();
+        }
 
         // Envoi automatique d'un email de confirmation de réception de commande
         {
@@ -1121,12 +1804,16 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
 
         // Notification simple si la commande est "Prête"
         if (status == "Prête" || status == "Prete") {
-            QMessageBox::information(this, "Commande prête",
-                                     QString("La commande %1 est prête!\nVous pouvez envoyer un email au client %2").arg(id, email));
+            QMessageBox::information(this, "Commande prête", 
+                QString("La commande %1 est prête!\nVous pouvez envoyer un email au client %2").arg(id, email));
         }
 
-        QMessageBox::information(this, "Succès", "La commande a été enregistrée !");
-
+        QString successMessage = "La commande a ete enregistree !";
+        if (!stockUpdateInfo.isEmpty()) {
+            successMessage += "\n" + stockUpdateInfo;
+        }
+        QMessageBox::information(this, "Succes", successMessage);
+        
         // Réinitialiser le formulaire
         ui->le_id->clear();
         ui->cb_article_type->setCurrentIndex(0);
@@ -1148,6 +1835,11 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->le_id_update_search->setFocus();
             return;
         }
+        if (!isPositiveIntegerText(searchId)) {
+            QMessageBox::warning(this, "Erreur Saisie", "❌ L'ID recherché doit être un nombre entier positif.");
+            ui->le_id_update_search->setFocus();
+            return;
+        }
 
         QSqlDatabase db = Connection::instance()->getDatabase();
         if (!db.isOpen()) {
@@ -1158,35 +1850,21 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
 
         QSqlQuery q(db);
-        const OrderColumns cols = detectOrderColumns(db, tableName);
-        if (!cols.valid) {
-            const QStringList realCols = getTableColumns(db, tableName);
-            QMessageBox::critical(this, "Erreur Base de données",
-                                  QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2")
-                                      .arg(tableName, realCols.join(", ")));
-            return;
-        }
-        QStringList selCols;
-        selCols << selectExpr(cols.id, "ORDER_ID")
-                << selectExpr(cols.type, "ORDER_TYPE")
-                << selectExpr(cols.qty, "ORDER_QTY")
-                << selectExpr(cols.email, "ORDER_EMAIL")
-                << selectExpr(cols.status, "ORDER_STATUS")
-                << selectExpr(cols.dateCmd, "ORDER_DATE")
-                << selectExpr(cols.dateLivr, "DELIVERY_DATE")
-                << selectExpr(cols.price, "ORDER_PRICE", "0");
-        q.prepare(QString("SELECT %1 FROM %2 WHERE %3 = :id")
-                      .arg(selCols.join(", "), tableName, cols.id));
+        q.prepare(QString(
+            "SELECT ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
+            "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE "
+            "FROM %1 WHERE ID_COMMANDE = :id"
+        ).arg(tableName));
         q.bindValue(":id", searchId);
 
         if (!q.exec()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Erreur lors de la recherche:\n" + q.lastError().text());
+                "Erreur lors de la recherche:\n" + q.lastError().text());
             qDebug() << "Erreur SQL (search update):" << q.lastError().text();
             return;
         }
@@ -1205,7 +1883,25 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         ui->le_email_update->setText(q.value(3).toString());
         {
             QString val = q.value(4).toString();
-            int idx = ui->cb_status_update->findText(val);
+            int idx = ui->cb_status_update->findText(val, Qt::MatchFixedString | Qt::MatchCaseSensitive);
+            if (idx < 0) {
+                const QString needle = val.trimmed();
+                for (int s = 0; s < ui->cb_status_update->count(); ++s) {
+                    const QString candidate = ui->cb_status_update->itemText(s).trimmed();
+                    if (candidate.compare(needle, Qt::CaseInsensitive) == 0) {
+                        idx = s;
+                        break;
+                    }
+                }
+            }
+            if (idx < 0 && isCancelledOrderStatus(val)) {
+                for (int s = 0; s < ui->cb_status_update->count(); ++s) {
+                    if (isCancelledOrderStatus(ui->cb_status_update->itemText(s))) {
+                        idx = s;
+                        break;
+                    }
+                }
+            }
             if (idx >= 0) ui->cb_status_update->setCurrentIndex(idx);
         }
         {
@@ -1240,7 +1936,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         double price = ui->dsb_price_update->value();
 
         // Validation Type
-        if (type.isEmpty() || type == "Sélectionner un type") {
+        if (isPlaceholderSelection(type)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Veuillez sélectionner un type d'article.");
             ui->cb_type_update->setFocus();
             return;
@@ -1252,6 +1948,11 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->sb_qty_update->setFocus();
             return;
         }
+        if (qty > 10000) {
+            QMessageBox::warning(this, "Erreur Saisie", "❌ La quantité semble anormalement grande (>10000).");
+            ui->sb_qty_update->setFocus();
+            return;
+        }
 
         // Validation Email
         if (email.isEmpty()) {
@@ -1259,8 +1960,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->le_email_update->setFocus();
             return;
         }
-        QRegularExpression emailRegex("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b");
-        if (!emailRegex.match(email).hasMatch()) {
+        if (!isValidEmail(email)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Format email invalide.");
             ui->le_email_update->setFocus();
             return;
@@ -1290,9 +1990,14 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->dsb_price_update->setFocus();
             return;
         }
+        if (price > 1000000) {
+            QMessageBox::warning(this, "Erreur Saisie", "❌ Le prix semble anormalement élevé (>1M).");
+            ui->dsb_price_update->setFocus();
+            return;
+        }
 
         // Validation Statut
-        if (status.isEmpty() || status == "Sélectionner un statut") {
+        if (isPlaceholderSelection(status)) {
             QMessageBox::warning(this, "Erreur Saisie", "❌ Veuillez sélectionner un statut.");
             ui->cb_status_update->setFocus();
             return;
@@ -1308,7 +2013,7 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
         }
 
@@ -1317,66 +2022,103 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         int oldQty = 0;
         double oldPrice = 0.0;
         QDate oldOrderDate, oldDeliveryDate;
-
-        const OrderColumns cols = detectOrderColumns(db, tableName);
-
+        
         QSqlQuery qOld(db);
-        if (cols.valid) {
-            QStringList selOld;
-            selOld << selectExpr(cols.type, "ORDER_TYPE")
-                   << selectExpr(cols.qty, "ORDER_QTY")
-                   << selectExpr(cols.email, "ORDER_EMAIL")
-                   << selectExpr(cols.status, "ORDER_STATUS")
-                   << selectExpr(cols.dateCmd, "ORDER_DATE")
-                   << selectExpr(cols.dateLivr, "DELIVERY_DATE")
-                   << selectExpr(cols.price, "ORDER_PRICE", "0");
-            qOld.prepare(QString("SELECT %1 FROM %2 WHERE %3 = :id")
-                             .arg(selOld.join(", "), tableName, cols.id));
-            qOld.bindValue(":id", id);
-            if (qOld.exec() && qOld.next()) {
-                oldType         = qOld.value(0).toString().trimmed();
-                oldQty          = qOld.value(1).toInt();
-                oldEmail        = qOld.value(2).toString().trimmed();
-                oldStatus       = qOld.value(3).toString().trimmed();
-                oldOrderDate    = parseDateLoose(qOld.value(4).toString());
-                oldDeliveryDate = parseDateLoose(qOld.value(5).toString());
-                oldPrice        = qOld.value(6).toDouble();
-            }
+        qOld.prepare(QString("SELECT TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
+                            "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL "
+                            "FROM %1 WHERE ID_COMMANDE = :id").arg(tableName));
+        qOld.bindValue(":id", id);
+        if (qOld.exec() && qOld.next()) {
+            oldType = qOld.value(0).toString().trimmed();
+            oldQty = qOld.value(1).toInt();
+            oldEmail = qOld.value(2).toString().trimmed();
+            oldStatus = qOld.value(3).toString().trimmed();
+            oldOrderDate = qOld.value(4).toDate();
+            oldDeliveryDate = qOld.value(5).toDate();
+            oldPrice = qOld.value(6).toDouble();
         }
 
         QSqlQuery q(db);
-        // Construire l'UPDATE dynamiquement
-        QStringList setParts;
-        if (!cols.type.isEmpty())    setParts << cols.type    + " = :type";
-        if (!cols.qty.isEmpty())     setParts << cols.qty     + " = :qty";
-        if (!cols.email.isEmpty())   setParts << cols.email   + " = :email";
-        if (!cols.status.isEmpty())  setParts << cols.status  + " = :status";
-        if (!cols.dateCmd.isEmpty()) setParts << cols.dateCmd + " = :date";
-        if (!cols.dateLivr.isEmpty())setParts << cols.dateLivr+ " = :dateDel";
-        if (!cols.price.isEmpty())   setParts << cols.price   + " = :price";
-        if (setParts.isEmpty()) {
-            QMessageBox::critical(this, "Erreur", "Aucune colonne modifiable détectée.");
-            return;
-        }
-        q.prepare(QString("UPDATE %1 SET %2 WHERE %3 = :id")
-                      .arg(tableName, setParts.join(", "), cols.id));
-        if (!cols.type.isEmpty())    q.bindValue(":type",    type);
-        if (!cols.qty.isEmpty())     q.bindValue(":qty",     qty);
-        if (!cols.email.isEmpty())   q.bindValue(":email",   email);
-        if (!cols.status.isEmpty())  q.bindValue(":status",  status);
-        if (!cols.dateCmd.isEmpty()) q.bindValue(":date",    dateOrder);
-        if (!cols.dateLivr.isEmpty())q.bindValue(":dateDel", dateDel);
-        if (!cols.price.isEmpty())   q.bindValue(":price",   price);
+        q.prepare(QString(
+            "UPDATE %1 SET "
+            "TYPE_PRODUIT = :type, QUANTITE = :qty, EMAIL_CLIENT = :email, "
+            "STATUT = :status, DATE_COMMANDE = :date, DATE_LIVRAISON_PREVUE = :dateDel, PRIX_TOTAL = :price "
+            "WHERE ID_COMMANDE = :id"
+        ).arg(tableName));
+        q.bindValue(":type", type);
+        q.bindValue(":qty", qty);
+        q.bindValue(":email", email);
+        q.bindValue(":status", status);
+        q.bindValue(":date", dateOrder);
+        q.bindValue(":dateDel", dateDel);
+        q.bindValue(":price", price);
         q.bindValue(":id", id);
 
         if (!q.exec()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Erreur lors de la mise à jour:\n" + q.lastError().text());
+                "Erreur lors de la mise à jour:\n" + q.lastError().text());
             qDebug() << "Erreur SQL (update):" << q.lastError().text();
             return;
         }
         if (q.numRowsAffected() == 0) {
             QMessageBox::warning(this, "Avertissement", "Aucune ligne mise à jour (ID introuvable ?).");
+            return;
+        }
+
+        QString stockSyncInfo;
+        QString stockSyncError;
+        const bool wasCancelled = isCancelledOrderStatus(oldStatus);
+        const bool nowCancelled = isCancelledOrderStatus(status);
+
+        bool stockSyncOk = true;
+
+        if (!wasCancelled && nowCancelled) {
+            // Passage vers statut annulee: on rend la matiere qui etait consommee.
+            if (oldQty > 0) {
+                stockSyncOk = adjustMaterialStockForOrderDelta(
+                    db,
+                    oldType,
+                    -oldQty,
+                    &stockSyncInfo,
+                    &stockSyncError
+                );
+            }
+        } else if (wasCancelled && !nowCancelled) {
+            // Sortie du statut annulee: on reconsomme la matiere selon les nouvelles valeurs.
+            if (qty > 0) {
+                stockSyncOk = adjustMaterialStockForOrderDelta(
+                    db,
+                    type,
+                    qty,
+                    &stockSyncInfo,
+                    &stockSyncError
+                );
+            }
+        } else if (!wasCancelled && !nowCancelled) {
+            // Flux standard (commande active avant/apres): ajustement delta type/quantite.
+            stockSyncOk = syncMaterialStockAfterOrderUpdate(
+                db,
+                oldType,
+                oldQty,
+                type,
+                qty,
+                &stockSyncInfo,
+                &stockSyncError
+            );
+        } else {
+            // Annulee -> annulee: aucun impact stock.
+            stockSyncInfo = "Commande deja annulee: aucun ajustement de stock matiere.";
+        }
+
+        if (!stockSyncOk) {
+            QSqlQuery rollbackQuery(db);
+            if (!rollbackQuery.exec("ROLLBACK")) {
+                qDebug() << "Erreur ROLLBACK (update):" << rollbackQuery.lastError().text();
+            }
+
+            QMessageBox::critical(this, "Stock matiere",
+                "Mise a jour annulee: impossible d'ajuster le stock matiere.\n" + stockSyncError);
+            qDebug() << "Echec ajustement stock (update):" << stockSyncError;
             return;
         }
 
@@ -1388,11 +2130,14 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         }
 
         reloadOrdersFromDb();
+        if (materialsWindow) {
+            materialsWindow->refreshFromDb();
+        }
 
         // Envoi automatique d'email si N'IMPORTE QUEL champ a été modifié
         bool hasChanges = false;
         QStringList changes; // Liste des modifications pour le message
-
+        
         if (oldType != type) {
             hasChanges = true;
             changes << QString("Type de produit: %1 → %2").arg(oldType, type);
@@ -1412,19 +2157,19 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         if (oldOrderDate != dateOrder) {
             hasChanges = true;
             changes << QString("Date de commande: %1 → %2")
-                           .arg(oldOrderDate.toString("dd/MM/yyyy"), dateOrder.toString("dd/MM/yyyy"));
+                .arg(oldOrderDate.toString("dd/MM/yyyy"), dateOrder.toString("dd/MM/yyyy"));
         }
         if (oldDeliveryDate != dateDel) {
             hasChanges = true;
             changes << QString("Date de livraison: %1 → %2")
-                           .arg(oldDeliveryDate.toString("dd/MM/yyyy"), dateDel.toString("dd/MM/yyyy"));
+                .arg(oldDeliveryDate.toString("dd/MM/yyyy"), dateDel.toString("dd/MM/yyyy"));
         }
         if (qAbs(oldPrice - price) > 0.01) { // Comparaison de doubles avec tolérance
             hasChanges = true;
             changes << QString("Prix: %1 DT → %2 DT")
-                           .arg(QString::number(oldPrice, 'f', 2), QString::number(price, 'f', 2));
+                .arg(QString::number(oldPrice, 'f', 2), QString::number(price, 'f', 2));
         }
-
+        
         if (hasChanges) {
             QMap<QString, QString> orderData;
             orderData["id"] = id;
@@ -1469,14 +2214,18 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             }
 
             qDebug() << "Email automatique envoyé - Modifications détectées:";
-            for (const QString &change : std::as_const(changes)) {
+            for (const QString &change : changes) {
                 qDebug() << "  •" << change;
             }
         } else {
             qDebug() << "Aucune modification détectée, pas d'email envoyé.";
         }
 
-        QMessageBox::information(this, "Succès", "Commande mise à jour avec succès !");
+        QString updateOkMsg = "Commande mise a jour avec succes !";
+        if (!stockSyncInfo.isEmpty()) {
+            updateOkMsg += "\n" + stockSyncInfo;
+        }
+        QMessageBox::information(this, "Succes", updateOkMsg);
     });
 
     // --- SUPPRIMER UNE COMMANDE (PAGE SUPPRIMER) ---
@@ -1487,12 +2236,17 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             ui->le_id_to_delete->setFocus();
             return;
         }
+        if (!isPositiveIntegerText(id)) {
+            QMessageBox::warning(this, "Erreur Saisie", "❌ L'ID à supprimer doit être un nombre entier positif.");
+            ui->le_id_to_delete->setFocus();
+            return;
+        }
 
         // Confirmation avant suppression
-        QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmation",
-                                                                  QString("⚠️  Êtes-vous sûr de vouloir supprimer la commande '%1' ?\nCette action est irréversible !").arg(id),
-                                                                  QMessageBox::Yes | QMessageBox::No);
-
+        QMessageBox::StandardButton reply = QMessageBox::question(this, "Confirmation", 
+            QString("⚠️  Êtes-vous sûr de vouloir supprimer la commande '%1' ?\nCette action est irréversible !").arg(id),
+            QMessageBox::Yes | QMessageBox::No);
+        
         if (reply == QMessageBox::No) {
             return;
         }
@@ -1506,15 +2260,37 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         QString tableName = detectOrdersTableName(db);
         if (tableName.isEmpty()) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
+                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.");
             return;
+        }
+
+        QString deletedOrderType;
+        int deletedOrderQty = 0;
+        {
+            QSqlQuery orderInfo(db);
+            orderInfo.prepare(QString("SELECT TYPE_PRODUIT, QUANTITE FROM %1 WHERE ID_COMMANDE = :id").arg(tableName));
+            orderInfo.bindValue(":id", id);
+
+            if (!orderInfo.exec()) {
+                QMessageBox::critical(this, "Erreur Base de donnees",
+                    "Impossible de charger les informations de la commande avant suppression.\n" + orderInfo.lastError().text());
+                return;
+            }
+
+            if (!orderInfo.next()) {
+                QMessageBox::warning(this, "Introuvable", "❌ Aucune commande trouvee pour cet ID.");
+                return;
+            }
+
+            deletedOrderType = orderInfo.value(0).toString();
+            deletedOrderQty = qMax(0, orderInfo.value(1).toInt());
         }
 
         // Supprimer d'abord les enregistrements enfants liés (évite ORA-02292)
         QString depError;
         if (!deleteOrderDependencies(db, tableName, id, &depError)) {
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Impossible de supprimer les enregistrements liés à cette commande.\n" + depError);
+                "Impossible de supprimer les enregistrements liés à cette commande.\n" + depError);
             qDebug() << "Erreur dépendances (delete):" << depError;
             return;
         }
@@ -1527,18 +2303,33 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
             const QString sqlErr = del.lastError().text();
             if (sqlErr.contains("ORA-02292", Qt::CaseInsensitive)) {
                 QMessageBox::critical(this, "Erreur Base de données",
-                                      "Suppression impossible: cette commande est encore référencée par d'autres données.\n"
-                                      "Supprimez d'abord les éléments liés, puis réessayez.\n\n"
-                                      "Détail SQL: " + sqlErr);
+                    "Suppression impossible: cette commande est encore référencée par d'autres données.\n"
+                    "Supprimez d'abord les éléments liés, puis réessayez.\n\n"
+                    "Détail SQL: " + sqlErr);
             } else {
                 QMessageBox::critical(this, "Erreur Base de données",
-                                      "Erreur lors de la suppression:\n" + sqlErr);
+                    "Erreur lors de la suppression:\n" + sqlErr);
             }
             qDebug() << "Erreur SQL (delete):" << sqlErr;
             return;
         }
         if (del.numRowsAffected() == 0) {
             QMessageBox::warning(this, "Introuvable", "❌ Aucune commande supprimée (ID introuvable)." );
+            return;
+        }
+
+        QString stockDeleteInfo;
+        QString stockDeleteError;
+        if (deletedOrderQty > 0
+            && !adjustMaterialStockForOrderDelta(db, deletedOrderType, -deletedOrderQty, &stockDeleteInfo, &stockDeleteError)) {
+            QSqlQuery rollbackQuery(db);
+            if (!rollbackQuery.exec("ROLLBACK")) {
+                qDebug() << "Erreur ROLLBACK (delete):" << rollbackQuery.lastError().text();
+            }
+
+            QMessageBox::critical(this, "Stock matiere",
+                "Suppression annulee: impossible de recrediter le stock matiere.\n" + stockDeleteError);
+            qDebug() << "Echec ajustement stock (delete):" << stockDeleteError;
             return;
         }
 
@@ -1550,9 +2341,16 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
         }
 
         reloadOrdersFromDb();
+        if (materialsWindow) {
+            materialsWindow->refreshFromDb();
+        }
 
         ui->le_id_to_delete->clear();
-        QMessageBox::information(this, "Succès", "✓ Commande supprimée avec succès !");
+        QString deleteOkMsg = "Commande supprimee avec succes !";
+        if (!stockDeleteInfo.isEmpty()) {
+            deleteOkMsg += "\n" + stockDeleteInfo;
+        }
+        QMessageBox::information(this, "Succes", deleteOkMsg);
     });
 
     // --- CONNEXIONS POUR LA PAGE LISTE ---
@@ -1572,36 +2370,15 @@ MainWindow::MainWindow(const QString &userEmail, QWidget *parent)
 
     // Initialisation
     reloadOrdersFromDb();
-    qDebug() << "reloadOrdersFromDb done";
     onCalendarDateChanged();
     updateStatistics();
     checkForNotifications(); // Vérification initiale
     loadEmailHistory(); // Charger l'historique des emails
-
+    
     // Configuration SMTP Gmail pré-configurée
     smtpUsername = "rayenbenabdallah21@gmail.com";
     smtpPassword = "imghwonvblnjenfv"; // Mot de passe d'application (sans espaces)
     qDebug() << "✅ Configuration SMTP: Email configuré pour" << smtpUsername;
-    // Initialisation Arduino
-    if (arduinoSensor ? arduinoSensor->connectArduino() : false == 0) {
-        qDebug() << "✅ Arduino connecté avec succès";
-        connect(arduinoSensor ? arduinoSensor->getSerialPort() : nullptr, &QSerialPort::readyRead, this, &MainWindow::update_label);
-    } else {
-        qDebug() << "⚠️ Échec de connexion Arduino (vérifiez les câbles/drivers)";
-    }
-
-    qDebug() << "MainWindow constructor end";
-
-    // Création dynamique du label de statut de porte dans la barre latérale
-    lbl_door_status = new QLabel(this);
-    lbl_door_status->setAlignment(Qt::AlignCenter);
-    lbl_door_status->setStyleSheet("color: #2ea043; font-size: 16px; font-weight: bold; background: #e8f5e9; border-radius: 8px; padding: 10px; margin: 10px;");
-    lbl_door_status->setText("🚪 PORTE FERMÉE");
-    lbl_door_status->setVisible(false);
-    if (ui->sidebarLayout) {
-        // Insérer avant le spacer à la fin
-        ui->sidebarLayout->insertWidget(ui->sidebarLayout->count() - 1, lbl_door_status);
-    }
 }
 
 void MainWindow::reloadOrdersFromDb()
@@ -1616,7 +2393,7 @@ void MainWindow::reloadOrdersFromDb()
         if (!warnedDbClosed) {
             warnedDbClosed = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Connexion BD fermée. Relancez l'application.");
+                "Connexion BD fermée. Relancez l'application.");
         }
         return;
     }
@@ -1627,53 +2404,25 @@ void MainWindow::reloadOrdersFromDb()
         if (!warnedNoTable) {
             warnedNoTable = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.\n"
-                                  "Vérifiez que vous êtes connecté au bon utilisateur/schéma.");
+                "Aucune table COMMANDE/COMMANDES trouvée dans ce schéma Oracle.\n"
+                "Vérifiez que vous êtes connecté au bon utilisateur/schéma.");
         }
         return;
     }
 
-    const OrderColumns cols = detectOrderColumns(db, tableName);
-    if (!cols.valid) {
-        const QStringList realCols = getTableColumns(db, tableName);
-        QMessageBox::critical(this, "Erreur Base de données",
-                              QString("Colonnes non reconnues dans '%1'.\nColonnes disponibles: %2\n\n"
-                                      "Ajoutez vos noms de colonnes dans detectOrderColumns().")
-                                  .arg(tableName, realCols.join(", ")));
-        return;
-    }
-
-    const QStringList realCols = getTableColumns(db, tableName);
-    bool hasEmail = !cols.email.isEmpty() && realCols.contains(cols.email.toUpper());
-    bool hasStatus = !cols.status.isEmpty() && realCols.contains(cols.status.toUpper());
-    bool hasDateCmd = !cols.dateCmd.isEmpty() && realCols.contains(cols.dateCmd.toUpper());
-    bool hasDateLivr = !cols.dateLivr.isEmpty() && realCols.contains(cols.dateLivr.toUpper());
-    bool hasPrice = !cols.price.isEmpty() && realCols.contains(cols.price.toUpper());
-    bool hasCin = !cols.cin.isEmpty() && realCols.contains(cols.cin.toUpper());
-
-    QStringList selCols;
-    selCols << cols.id << cols.type << cols.qty;
-    if (hasEmail)   selCols << cols.email;
-    if (hasStatus)  selCols << cols.status;
-    if (hasDateCmd) selCols << cols.dateCmd;
-    if (hasDateLivr)selCols << cols.dateLivr;
-    if (hasPrice)   selCols << cols.price;
-    else            selCols << "0 AS ORDER_PRICE";
-    if (hasCin)     selCols << cols.cin + " AS ORDER_EMPLOYEE_CIN";
-
-    const QString sql = QString("SELECT %1 FROM %2 ORDER BY %3")
-                            .arg(selCols.join(", "), tableName, cols.id);
-    qDebug() << "reloadOrdersFromDb SQL:" << sql;
-
     QSqlQuery q(db);
-    q.prepare(sql);
+    q.prepare(QString(
+        "SELECT ID_COMMANDE, TYPE_PRODUIT, QUANTITE, EMAIL_CLIENT, STATUT, "
+        "DATE_COMMANDE, DATE_LIVRAISON_PREVUE, PRIX_TOTAL, CIN_EMPLOYE "
+        "FROM %1 ORDER BY ID_COMMANDE"
+    ).arg(tableName));
 
     if (!q.exec()) {
         qDebug() << "reloadOrdersFromDb: SELECT failed:" << q.lastError().text();
         if (!warnedSelectFailed) {
             warnedSelectFailed = true;
             QMessageBox::critical(this, "Erreur Base de données",
-                                  "Erreur lors du chargement des commandes:\n" + q.lastError().text());
+                "Erreur lors du chargement des commandes:\n" + q.lastError().text());
         }
         return;
     }
@@ -1685,29 +2434,44 @@ void MainWindow::reloadOrdersFromDb()
     deliveryStatuses.clear();
 
     while (q.next()) {
-        int i = 0;
-        QString id       = q.value(i++).toString();
-        QString type     = q.value(i++).toString();
-        int     qty      = q.value(i++).toInt();
-        QString email    = hasEmail ? q.value(i++).toString() : QString();
-        QString status   = hasStatus ? q.value(i++).toString() : QString();
-        QString date     = normalizeDateText(hasDateCmd ? q.value(i++).toString() : QString());
-        QString dateDel  = normalizeDateText(hasDateLivr ? q.value(i++).toString() : QString());
-        double  price    = q.value(i++).toDouble();
-        QString cinEmploye = hasCin ? q.value(i++).toString() : QString();
+        QString id = q.value(0).toString();
+        QString type = q.value(1).toString();
+        int qty = q.value(2).toInt();
+        QString email = q.value(3).toString();
+        QString status = q.value(4).toString();
+        QString date = normalizeDateText(q.value(5));
+        QString dateDel = normalizeDateText(q.value(6));
+        double price = q.value(7).toDouble();
+        QString cinEmploye = q.value(8).toString();
 
         // Liste (10 colonnes)
         {
             int row = ui->table_list->rowCount();
             ui->table_list->insertRow(row);
-            ui->table_list->setItem(row, 0, new QTableWidgetItem(id));
+
+            auto *idItem = new QTableWidgetItem();
+            bool idOk = false;
+            const int idNumber = id.toInt(&idOk);
+            if (idOk) {
+                idItem->setData(Qt::DisplayRole, idNumber);
+            } else {
+                idItem->setText(id);
+            }
+
+            auto *qtyItem = new QTableWidgetItem();
+            qtyItem->setData(Qt::DisplayRole, qty);
+
+            auto *priceItem = new QTableWidgetItem();
+            priceItem->setData(Qt::DisplayRole, price);
+
+            ui->table_list->setItem(row, 0, idItem);
             ui->table_list->setItem(row, 1, new QTableWidgetItem(type));
-            ui->table_list->setItem(row, 2, new QTableWidgetItem(QString::number(qty)));
+            ui->table_list->setItem(row, 2, qtyItem);
             ui->table_list->setItem(row, 3, new QTableWidgetItem(email));
             ui->table_list->setItem(row, 4, new QTableWidgetItem(""));
             ui->table_list->setItem(row, 5, new QTableWidgetItem(date));
             ui->table_list->setItem(row, 6, new QTableWidgetItem(dateDel));
-            ui->table_list->setItem(row, 7, new QTableWidgetItem(QString::number(price)));
+            ui->table_list->setItem(row, 7, priceItem);
             ui->table_list->setItem(row, 8, new QTableWidgetItem(cinEmploye));
             ui->table_list->setItem(row, 9, new QTableWidgetItem(status));
         }
@@ -1716,9 +2480,22 @@ void MainWindow::reloadOrdersFromDb()
         {
             int row = ui->table_delete->rowCount();
             ui->table_delete->insertRow(row);
-            ui->table_delete->setItem(row, 0, new QTableWidgetItem(id));
+
+            auto *deleteIdItem = new QTableWidgetItem();
+            bool delIdOk = false;
+            const int deleteIdNumber = id.toInt(&delIdOk);
+            if (delIdOk) {
+                deleteIdItem->setData(Qt::DisplayRole, deleteIdNumber);
+            } else {
+                deleteIdItem->setText(id);
+            }
+
+            auto *deleteQtyItem = new QTableWidgetItem();
+            deleteQtyItem->setData(Qt::DisplayRole, qty);
+
+            ui->table_delete->setItem(row, 0, deleteIdItem);
             ui->table_delete->setItem(row, 1, new QTableWidgetItem(type));
-            ui->table_delete->setItem(row, 2, new QTableWidgetItem(QString::number(qty)));
+            ui->table_delete->setItem(row, 2, deleteQtyItem);
             ui->table_delete->setItem(row, 3, new QTableWidgetItem(status));
             ui->table_delete->setItem(row, 4, new QTableWidgetItem(email));
         }
@@ -1734,10 +2511,51 @@ void MainWindow::reloadOrdersFromDb()
     updateCalendarHighlights();
     updateStatistics();
     updateCalendarStats();
+    
+    // Animer l'apparition des tableaux chargés
+    animateTableItemAppearance(ui->table_list);
+    animateTableItemAppearance(ui->table_delete);
+
+    // ========== Initialiser Arduino Sensor ==========
+    qDebug() << "📡 Création ArduinoSensor...";
+    arduinoSensor = new ArduinoSensor(this);
+    qDebug() << "✅ ArduinoSensor créé!";
+    
+    // Connecter les signaux Arduino
+    qDebug() << "🔗 Connexion des signaux...";
+    connect(arduinoSensor, &ArduinoSensor::temperatureReceived,
+            this, &MainWindow::onArduinoTemperatureReceived);
+    connect(arduinoSensor, &ArduinoSensor::errorOccurred,
+            this, &MainWindow::onArduinoErrorOccurred);
+    connect(arduinoSensor, &ArduinoSensor::connectedStatusChanged,
+            this, &MainWindow::onArduinoConnectedStatusChanged);
+    qDebug() << "✅ Signaux connectés!";
+    
+    // Timer pour tentative de reconnexion automatique toutes les 30 secondes
+    arduinoAutoConnectTimer = new QTimer(this);
+    connect(arduinoAutoConnectTimer, &QTimer::timeout, this, [this]() {
+        if (!arduinoSensor->isConnected()) {
+            connectToArduino();
+        }
+    });
+    arduinoAutoConnectTimer->start(30000);
+    
+    // Première tentative de connexion au démarrage
+    qDebug() << "📱 APPEL connectToArduino()...";
+    connectToArduino();
+    qDebug() << "✅ Constructeur MainWindow terminé!";
 }
 
 MainWindow::~MainWindow()
 {
+    // Nettoyer Arduino
+    if (arduinoAutoConnectTimer) {
+        arduinoAutoConnectTimer->stop();
+    }
+    if (arduinoSensor) {
+        arduinoSensor->disconnectFromPort();
+    }
+    
     delete ui;
 }
 
@@ -1750,10 +2568,10 @@ void MainWindow::onCalendarDateChanged()
 {
     QDate selectedDate = ui->calendarWidget->selectedDate();
     qDebug() << "Calendrier: Date sélectionnée:" << selectedDate.toString("dd/MM/yyyy");
-
+    
     ui->lbl_selected_date->setText("📅 Date sélectionnée: " + selectedDate.toString("dd/MM/yyyy"));
     updateDeliveryList(selectedDate);
-
+    
     // Met à jour les statistiques du calendrier pour refléter la sélection
     updateCalendarStats();
 }
@@ -1761,17 +2579,17 @@ void MainWindow::onCalendarDateChanged()
 void MainWindow::updateDeliveryList(const QDate &date)
 {
     ui->list_deliveries->clear();
-
+    
     qDebug() << "Mise à jour liste livraisons pour:" << date.toString("dd/MM/yyyy");
     qDebug() << "Nombre total de dates avec livraisons:" << deliveryDates.size();
-
+    
     if (deliveryDates.contains(date)) {
         QStringList orderIds = deliveryDates[date];
         qDebug() << "Livraisons trouvées pour cette date:" << orderIds.size();
-
+        
         // Ajouter un en-tête avec le nombre de livraisons
         ui->list_deliveries->addItem(QString("═══ %1 livraison(s) prévue(s) ═══").arg(orderIds.size()));
-
+        
         for (const QString &orderId : orderIds) {
             bool foundInList = false;
             // Trouver les détails de la commande
@@ -1784,7 +2602,7 @@ void MainWindow::updateDeliveryList(const QDate &date)
                     QString deliveryDate = ui->table_list->item(row, 6)->text();
                     QString price = ui->table_list->item(row, 7)->text();
                     QString status = ui->table_list->item(row, 9)->text();
-
+                    
                     // Indicateur coloré basé sur le statut
                     QString statusIcon = "🔵";
                     if (status.contains("Prête", Qt::CaseInsensitive)) {
@@ -1796,18 +2614,18 @@ void MainWindow::updateDeliveryList(const QDate &date)
                     } else if (status.contains("Complétée", Qt::CaseInsensitive)) {
                         statusIcon = "🔵";
                     }
-
+                    
                     QString itemText = QString(
-                                           "%1 Commande #%2\n"
-                                           "   Type: %3\n"
-                                           "   Client: %4\n"
-                                           "   Quantité: %5\n"
-                                           "   Prix: %6 DT\n"
-                                           "   Statut: %7\n"
-                                           "   Commandée: %8\n"
-                                           "   À livrer: %9"
-                                           ).arg(statusIcon, orderId, type, email, quantity, price, status, orderDate, deliveryDate);
-
+                        "%1 Commande #%2\n"
+                        "   Type: %3\n"
+                        "   Client: %4\n"
+                        "   Quantité: %5\n"
+                        "   Prix: %6 DT\n"
+                        "   Statut: %7\n"
+                        "   Commandée: %8\n"
+                        "   À livrer: %9"
+                    ).arg(statusIcon, orderId, type, email, quantity, price, status, orderDate, deliveryDate);
+                    
                     ui->list_deliveries->addItem(itemText);
                     foundInList = true;
                     break;
@@ -1825,24 +2643,24 @@ void MainWindow::updateDeliveryList(const QDate &date)
         ui->list_deliveries->addItem("❌ Aucune livraison prévue");
         ui->list_deliveries->addItem("pour cette date.");
         ui->list_deliveries->addItem("═══════════════════════");
-
+        
         // Afficher un aperçu des prochaines livraisons
         if (!deliveryDates.isEmpty()) {
             ui->list_deliveries->addItem("");
             ui->list_deliveries->addItem("📅 Prochaines livraisons:");
-
+            
             QList<QDate> allDates = deliveryDates.keys();
             std::sort(allDates.begin(), allDates.end());
-
+            
             int count = 0;
-            for (const QDate &nextDate : std::as_const(allDates)) {
+            for (const QDate& nextDate : allDates) {
                 if (nextDate >= date && count < 5) {
                     int nbOrders = deliveryDates[nextDate].size();
                     ui->list_deliveries->addItem(
                         QString("  • %1: %2 commande(s)")
-                            .arg(nextDate.toString("dd/MM/yyyy"))
-                            .arg(nbOrders)
-                        );
+                        .arg(nextDate.toString("dd/MM/yyyy"))
+                        .arg(nbOrders)
+                    );
                     count++;
                 }
             }
@@ -1854,47 +2672,51 @@ void MainWindow::updateCalendarHighlights()
 {
     // Réinitialiser le format du calendrier
     QTextCharFormat defaultFormat;
-    defaultFormat.setForeground(Qt::black);
-
+    defaultFormat.setForeground(QColor("#2f241d"));
+    defaultFormat.setBackground(QColor("#fffaf5"));
+    
     QTextCharFormat weekendFormat;
-    weekendFormat.setForeground(QColor(220, 20, 60)); // Rouge écarlate
+    weekendFormat.setForeground(QColor("#b33232"));
+    weekendFormat.setBackground(QColor("#fff2f2"));
     weekendFormat.setFontWeight(QFont::Bold);
-
+    
     QTextCharFormat todayFormat;
-    todayFormat.setBackground(QColor(255, 215, 0)); // Jaune or
-    todayFormat.setForeground(Qt::black);
+    todayFormat.setBackground(QColor("#f7d974"));
+    todayFormat.setForeground(QColor("#2f241d"));
     todayFormat.setFontWeight(QFont::Bold);
-
+    
     // Couleurs par statut
     QTextCharFormat readyFormat;
-    readyFormat.setBackground(QColor(144, 238, 144)); // Vert clair
-    readyFormat.setForeground(Qt::darkGreen);
+    readyFormat.setBackground(QColor("#d8f1de"));
+    readyFormat.setForeground(QColor("#245b34"));
     readyFormat.setFontWeight(QFont::Bold);
-
+    
     QTextCharFormat inProgressFormat;
-    inProgressFormat.setBackground(QColor(255, 179, 71)); // Orange
-    inProgressFormat.setForeground(Qt::darkRed);
+    inProgressFormat.setBackground(QColor("#ffe3bd"));
+    inProgressFormat.setForeground(QColor("#7a4a10"));
     inProgressFormat.setFontWeight(QFont::Bold);
-
+    
     QTextCharFormat pendingFormat;
-    pendingFormat.setBackground(QColor(255, 107, 107)); // Rouge
-    pendingFormat.setForeground(Qt::white);
+    pendingFormat.setBackground(QColor("#ffd8d8"));
+    pendingFormat.setForeground(QColor("#7f1d1d"));
     pendingFormat.setFontWeight(QFont::Bold);
-
+    
     QTextCharFormat completedFormat;
-    completedFormat.setBackground(QColor(135, 206, 235)); // Bleu ciel
-    completedFormat.setForeground(Qt::darkBlue);
+    completedFormat.setBackground(QColor("#dbe9ff"));
+    completedFormat.setForeground(QColor("#26437a"));
     completedFormat.setFontWeight(QFont::Bold);
-
+    
     QTextCharFormat deliveryFormat;
-    deliveryFormat.setBackground(QColor(211, 211, 211)); // Gris clair pour statut inconnu
-    deliveryFormat.setForeground(Qt::black);
+    deliveryFormat.setBackground(QColor("#ece6df"));
+    deliveryFormat.setForeground(QColor("#3d2f24"));
     deliveryFormat.setFontWeight(QFont::Bold);
-
-    QDate today = QDate::currentDate();
-    QDate monthStart = QDate(today.year(), today.month(), 1);
+    
+    const QDate today = QDate::currentDate();
+    const int shownYear = ui->calendarWidget ? ui->calendarWidget->yearShown() : today.year();
+    const int shownMonth = ui->calendarWidget ? ui->calendarWidget->monthShown() : today.month();
+    const QDate monthStart(shownYear, shownMonth, 1);
     QDate monthEnd = monthStart.addMonths(1).addDays(-1);
-
+    
     // Parcourir tout le mois et appliquer les mises en forme
     for (QDate date = monthStart; date <= monthEnd; date = date.addDays(1)) {
         if (date == today) {
@@ -1902,16 +2724,15 @@ void MainWindow::updateCalendarHighlights()
             ui->calendarWidget->setDateTextFormat(date, todayFormat);
         } else if (deliveryDates.contains(date)) {
             // Déterminer le pire statut pour la date (utiliser celui-ci pour la couleur)
-            QString worstStatus = "En attente"; // défaut
             bool hasReady = false;
             bool hasInProgress = false;
             bool hasPending = false;
             bool hasCompleted = false;
-
+            
             QStringList orderIds = deliveryDates[date];
             for (const QString& orderId : orderIds) {
                 QString status = deliveryStatuses[date].value(orderId, "En attente");
-
+                
                 if (status.contains("Prête", Qt::CaseInsensitive)) {
                     hasReady = true;
                 } else if (status.contains("En cours", Qt::CaseInsensitive)) {
@@ -1922,7 +2743,7 @@ void MainWindow::updateCalendarHighlights()
                     hasCompleted = true;
                 }
             }
-
+            
             // Hiérarchie : Attente > En cours > Prête > Complétée
             if (hasPending) {
                 ui->calendarWidget->setDateTextFormat(date, pendingFormat);
@@ -1949,7 +2770,7 @@ void MainWindow::updateCalendarStats()
 {
     QDate today = QDate::currentDate();
     QDate weekEnd = today.addDays(7);
-
+    
     int thisWeekCount = 0;
     int thisMonthCount = 0;
     int overdueCount = 0;
@@ -1958,25 +2779,25 @@ void MainWindow::updateCalendarStats()
     int pendingCount = 0;
     int completedCount = 0;
     double totalRevenue = 0.0;
-
+    
     // Statistiques par date de livraison
     for (auto it = deliveryDates.begin(); it != deliveryDates.end(); ++it) {
         QDate deliveryDate = it.key();
         QStringList orderIds = it.value();
         int orderCount = orderIds.count();
-
+        
         if (deliveryDate < today) {
             overdueCount += orderCount;
         }
-
+        
         if (deliveryDate >= today && deliveryDate <= weekEnd) {
             thisWeekCount += orderCount;
         }
-
+        
         if (deliveryDate.year() == today.year() && deliveryDate.month() == today.month()) {
             thisMonthCount += orderCount;
         }
-
+        
         // Comptage par statut
         for (const QString& orderId : orderIds) {
             QString status = deliveryStatuses[deliveryDate].value(orderId, "En attente");
@@ -1991,16 +2812,67 @@ void MainWindow::updateCalendarStats()
             }
         }
     }
-
+    
     // Calculer le revenu total
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         QString priceStr = ui->table_list->item(row, 7) ? ui->table_list->item(row, 7)->text() : "0";
         totalRevenue += priceStr.toDouble();
     }
+    
+    const double overdueRatio = (thisMonthCount > 0) ? (overdueCount * 100.0 / thisMonthCount) : 0.0;
+
+    auto cardStyle = [](const QString &startColor,
+                        const QString &endColor,
+                        const QString &borderColor,
+                        const QString &textColor = "#ffffff") {
+        return QString(
+            "QFrame{"
+            "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2);"
+            "border:1px solid %3;"
+            "border-radius:12px;"
+            "padding:14px;"
+            "}"
+            "QLabel{color:%4;}"
+        ).arg(startColor, endColor, borderColor, textColor);
+    };
+
+    if (ui->stat_this_week) {
+        if (thisWeekCount > 0) {
+            ui->stat_this_week->setStyleSheet(cardStyle("#c68e65", "#8b5e3b", "#a26f4f"));
+        } else {
+            ui->stat_this_week->setStyleSheet(cardStyle("#8f8f8f", "#6f6f6f", "#5f5f5f"));
+        }
+    }
+
+    if (ui->stat_this_month) {
+        ui->stat_this_month->setStyleSheet(cardStyle("#4e4338", "#2f2822", "#3d322a"));
+    }
+
+    if (ui->stat_overdue) {
+        if (overdueCount > 0 && overdueRatio >= 40.0) {
+            ui->stat_overdue->setStyleSheet(cardStyle("#c95a5a", "#8f2b2b", "#7e2222"));
+        } else if (overdueCount > 0) {
+            ui->stat_overdue->setStyleSheet(cardStyle("#d8944d", "#9f6631", "#895629"));
+        } else {
+            ui->stat_overdue->setStyleSheet(cardStyle("#5c946f", "#3e6f52", "#315a43"));
+        }
+    }
 
     ui->lbl_this_week_value->setText(QString::number(thisWeekCount));
     ui->lbl_this_month_value->setText(QString::number(thisMonthCount));
     ui->lbl_overdue_value->setText(QString::number(overdueCount));
+
+    const QString statsTooltip = QString(
+        "Pretes: %1\nEn cours: %2\nEn attente: %3\nCompletees: %4\nRevenu total: %5 DT"
+    ).arg(readyCount)
+     .arg(inProgressCount)
+     .arg(pendingCount)
+     .arg(completedCount)
+     .arg(QString::number(totalRevenue, 'f', 2));
+
+    if (ui->lbl_this_week_value) ui->lbl_this_week_value->setToolTip(statsTooltip);
+    if (ui->lbl_this_month_value) ui->lbl_this_month_value->setToolTip(statsTooltip);
+    if (ui->lbl_overdue_value) ui->lbl_overdue_value->setToolTip(statsTooltip);
 }
 
 void MainWindow::onExportCalendar()
@@ -2008,25 +2880,25 @@ void MainWindow::onExportCalendar()
     // Créer une boîte de dialogue pour demander le format d'export
     QStringList formats;
     formats << "PDF" << "CSV";
-
+    
     bool ok;
     QString format = QInputDialog::getItem(this, "Format d'export",
-                                           "Choisir le format d'export:", formats, 0, false, &ok);
-
+        "Choisir le format d'export:", formats, 0, false, &ok);
+    
     if (!ok) return;
-
+    
     // Demander le chemin de sauvegarde
     QString fileName;
     if (format == "PDF") {
         fileName = QFileDialog::getSaveFileName(this, "Exporter en PDF",
-                                                "commandes.pdf", "PDF Files (*.pdf)");
+            "commandes.pdf", "PDF Files (*.pdf)");
     } else {
         fileName = QFileDialog::getSaveFileName(this, "Exporter en CSV",
-                                                "commandes.csv", "CSV Files (*.csv)");
+            "commandes.csv", "CSV Files (*.csv)");
     }
-
+    
     if (fileName.isEmpty()) return;
-
+    
     if (format == "PDF") {
         exportToPDF(fileName);
     } else {
@@ -2039,57 +2911,57 @@ void MainWindow::exportToPDF(const QString &fileName)
     QPdfWriter pdfWriter(fileName);
     pdfWriter.setPageSize(QPageSize::A4);
     pdfWriter.setTitle("Rapport des Commandes");
-
+    
     QPainter painter;
     if (!painter.begin(&pdfWriter)) {
         QMessageBox::critical(this, "Erreur", "Impossible de créer le fichier PDF.");
         return;
     }
-
+    
     // En-tête
     QFont headerFont("Arial", 16, QFont::Bold);
     painter.setFont(headerFont);
     painter.drawText(50, 50, "Rapport des Commandes");
     painter.drawText(50, 100, QString("Généré le %1").arg(QDate::currentDate().toString("dd/MM/yyyy")));
-
+    
     // Tableau
     QFont tableFont("Arial", 10);
     painter.setFont(tableFont);
-
+    
     int y = 150;
     int lineHeight = 20;
-
+    
     // En-têtes du tableau
     painter.drawText(50, y, "ID");
     painter.drawText(120, y, "Type");
     painter.drawText(220, y, "Qty");
     painter.drawText(280, y, "Email");
     painter.drawText(420, y, "Statut");
-
+    
     y += lineHeight;
-
+    
     // Données du tableau
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         if (y > pdfWriter.height() - 50) {
             pdfWriter.newPage();
             y = 50;
         }
-
+        
         QString id = ui->table_list->item(row, 0) ? ui->table_list->item(row, 0)->text() : "";
         QString type = ui->table_list->item(row, 1) ? ui->table_list->item(row, 1)->text() : "";
         QString qty = ui->table_list->item(row, 2) ? ui->table_list->item(row, 2)->text() : "";
         QString email = ui->table_list->item(row, 3) ? ui->table_list->item(row, 3)->text() : "";
         QString status = ui->table_list->item(row, 9) ? ui->table_list->item(row, 9)->text() : "";
-
+        
         painter.drawText(50, y, id);
         painter.drawText(120, y, type);
         painter.drawText(220, y, qty);
         painter.drawText(280, y, email.left(20));
         painter.drawText(420, y, status);
-
+        
         y += lineHeight;
     }
-
+    
     painter.end();
     QMessageBox::information(this, "Succès", "Le fichier PDF a été créé avec succès:\n" + fileName);
 }
@@ -2101,12 +2973,12 @@ void MainWindow::exportToCSV(const QString &fileName)
         QMessageBox::critical(this, "Erreur", "Impossible de créer le fichier CSV.");
         return;
     }
-
+    
     QTextStream out(&file);
-
+    
     // En-têtes
     out << "ID,Type,Quantité,Email,Date Commande,Date Livraison,Prix,Statut\n";
-
+    
     // Données
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         QString id = ui->table_list->item(row, 0) ? ui->table_list->item(row, 0)->text() : "";
@@ -2117,11 +2989,11 @@ void MainWindow::exportToCSV(const QString &fileName)
         QString dateDeliv = ui->table_list->item(row, 6) ? ui->table_list->item(row, 6)->text() : "";
         QString price = ui->table_list->item(row, 7) ? ui->table_list->item(row, 7)->text() : "";
         QString status = ui->table_list->item(row, 9) ? ui->table_list->item(row, 9)->text() : "";
-
+        
         out << QString("\"%1\",\"%2\",\"%3\",\"%4\",\"%5\",\"%6\",\"%7\",\"%8\"\n")
-                   .arg(id, type, qty, email, dateOrder, dateDeliv, price, status);
+            .arg(id, type, qty, email, dateOrder, dateDeliv, price, status);
     }
-
+    
     file.close();
     QMessageBox::information(this, "Succès", "Le fichier CSV a été créé avec succès:\n" + fileName);
 }
@@ -2130,118 +3002,189 @@ void MainWindow::exportToCSV(const QString &fileName)
 
 void MainWindow::updateStatistics()
 {
-    int totalOrders = ui->table_list->rowCount();
-    double totalRevenue = 0.0;
-    int pendingOrders = 0;
-
-    QMap<QString, int> typeCount;
-
-    for (int row = 0; row < totalOrders; ++row) {
-        auto *priceItem = ui->table_list->item(row, 7);
-        auto *statusItem = ui->table_list->item(row, 9);
-        auto *typeItem = ui->table_list->item(row, 1);
-        if (!priceItem || !statusItem || !typeItem) {
-            continue;
-        }
-
-        // Calcul du revenu total
-        QString priceStr = priceItem->text();
-        totalRevenue += priceStr.toDouble();
-
-        // Comptage des commandes en attente
-        QString status = statusItem->text();
-        if (status == "En attente" || status == "En cours") {
-            pendingOrders++;
-        }
-
-        // Comptage par type
-        QString type = typeItem->text();
-        typeCount[type]++;
-
+    if (!ui || !ui->table_list) {
+        return;
     }
 
-    // ===== MISE À JOUR DE LA PAGE STATS PRINCIPALE (SIDEBAR) =====
+    const int totalOrders = ui->table_list->rowCount();
+    double totalRevenue = 0.0;
+    int pendingOrders = 0;
+    int deliveredOrders = 0;
+    QMap<QString, int> typeCount;
+
+    auto tableText = [this](int row, int col) -> QString {
+        QTableWidgetItem *it = ui->table_list->item(row, col);
+        return it ? it->text().trimmed() : QString();
+    };
+
+    for (int row = 0; row < totalOrders; ++row) {
+        bool okPrice = false;
+        const double price = tableText(row, 7).toDouble(&okPrice);
+        if (okPrice) {
+            totalRevenue += price;
+        }
+
+        const QString status = tableText(row, 9).toLower();
+        if (status.contains("attente") || status.contains("en cours")) {
+            ++pendingOrders;
+        }
+        if (status.contains("livr") || status.contains("exped") || status.contains("complete")) {
+            ++deliveredOrders;
+        }
+
+        QString type = tableText(row, 1);
+        if (type.isEmpty()) {
+            type = "Inconnu";
+        }
+        typeCount[type] += 1;
+    }
+
+    const double avgPrice = (totalOrders > 0) ? (totalRevenue / totalOrders) : 0.0;
+    const double pendingRatio = (totalOrders > 0) ? (pendingOrders * 100.0 / totalOrders) : 0.0;
+
+    auto cardStyle = [](const QString &startColor,
+                        const QString &endColor,
+                        const QString &borderColor,
+                        const QString &textColor = "#ffffff") {
+        return QString(
+            "QFrame{"
+            "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 %1,stop:1 %2);"
+            "border:1px solid %3;"
+            "border-radius:14px;"
+            "padding:18px;"
+            "}"
+            "QLabel{color:%4;}"
+        ).arg(startColor, endColor, borderColor, textColor);
+    };
+
+    if (ui->stat_main_card_orders) {
+        ui->stat_main_card_orders->setStyleSheet(cardStyle("#c68e65", "#8b5e3b", "#a26f4f"));
+    }
+    if (ui->stat_main_card_revenue) {
+        ui->stat_main_card_revenue->setStyleSheet(cardStyle("#4e4338", "#2f2822", "#3d322a"));
+    }
+    if (ui->stat_main_card_pending) {
+        if (pendingRatio >= 50.0) {
+            ui->stat_main_card_pending->setStyleSheet(cardStyle("#c95a5a", "#8f2b2b", "#7e2222"));
+        } else if (pendingRatio >= 25.0) {
+            ui->stat_main_card_pending->setStyleSheet(cardStyle("#d8944d", "#9f6631", "#895629"));
+        } else {
+            ui->stat_main_card_pending->setStyleSheet(cardStyle("#5c946f", "#3e6f52", "#315a43"));
+        }
+    }
+
+    if (ui->stats_main_details_container) {
+        ui->stats_main_details_container->setStyleSheet(
+            "QFrame{background:#fffdfb;border:1px solid #d8c3b3;border-radius:16px;padding:16px;}"
+            "QLabel{color:#4a3528;}"
+        );
+    }
+
     ui->lbl_main_orders_value->setText(QString::number(totalOrders));
     ui->lbl_main_revenue_value->setText(QString::number(totalRevenue, 'f', 2) + " DT");
     ui->lbl_main_pending_value->setText(QString::number(pendingOrders));
 
-    // Trouver le produit le plus vendu
     QString topProduct = "-";
     int maxTypeCount = 0;
     for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
         if (it.value() > maxTypeCount) {
             maxTypeCount = it.value();
-            topProduct = it.key() + " (" + QString::number(it.value()) + " commandes)";
+            topProduct = QString("%1 (%2 commandes)").arg(it.key()).arg(it.value());
         }
     }
     ui->lbl_main_top_product_value->setText(topProduct);
-
     ui->lbl_main_top_city_value->setText("N/A");
-
-    // Prix moyen
-    double avgPrice = totalOrders > 0 ? totalRevenue / totalOrders : 0.0;
     ui->lbl_main_avg_price_value->setText(QString::number(avgPrice, 'f', 2) + " DT");
 
-    // Répartition par type
-    QString typeStats = "📊 Répartition par type de cuir:\n\n";
+    QString typeStats = "Repartition par type:\n";
     for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
-        double percentage = totalOrders > 0 ? (it.value() * 100.0 / totalOrders) : 0.0;
-        typeStats += QString("• %1: %2 commandes (%3%)\n").arg(it.key()).arg(it.value()).arg(QString::number(percentage, 'f', 1));
+        const double percentage = (totalOrders > 0) ? (it.value() * 100.0 / totalOrders) : 0.0;
+        typeStats += QString("- %1: %2 (%3%)\n")
+                         .arg(it.key())
+                         .arg(it.value())
+                         .arg(QString::number(percentage, 'f', 1));
     }
-    ui->lbl_main_type_stats->setText(typeStats.isEmpty() || totalOrders == 0 ? "Aucune donnée disponible." : typeStats);
+    ui->lbl_main_type_stats->setText(typeCount.isEmpty() ? "Aucune donnee disponible." : typeStats);
 
-    // Pie chart rendering for type distribution
     if (ui->stats_chart_frame) {
         auto chartView = ui->stats_chart_frame->findChild<QChartView*>("typePieChartView");
         if (chartView) {
             auto *series = new QPieSeries();
+            series->setHoleSize(0.35);
+
             if (totalOrders > 0) {
-                for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
-                    series->append(it.key(), it.value());
+                const QList<QColor> palette = {
+                    QColor("#8B5E3B"),
+                    QColor("#C68E65"),
+                    QColor("#4A6A7F"),
+                    QColor("#6E8B74"),
+                    QColor("#A3755B"),
+                    QColor("#A2A05A")
+                };
+
+                int idx = 0;
+                int maxCount = 0;
+                QPieSlice *largest = nullptr;
+                for (auto it = typeCount.begin(); it != typeCount.end(); ++it, ++idx) {
+                    QPieSlice *slice = series->append(it.key(), it.value());
+                    slice->setBrush(palette[idx % palette.size()]);
+                    slice->setLabel(QString("%1 (%2%)")
+                                        .arg(it.key())
+                                        .arg(QString::number(slice->percentage() * 100.0, 'f', 1)));
+                    slice->setLabelVisible(true);
+                    if (it.value() > maxCount) {
+                        maxCount = it.value();
+                        largest = slice;
+                    }
+                }
+                if (largest) {
+                    largest->setExploded(true);
+                    largest->setExplodeDistanceFactor(0.08);
                 }
             } else {
-                series->append("Aucune donnée", 1);
-            }
-
-            const auto slices = series->slices();
-            for (QPieSlice *slice : std::as_const(slices)) {
-                double pct = slice->percentage() * 100.0;
-                if (pct > 0.0) {
-                    slice->setLabel(QString("%1 (%2%)").arg(slice->label(), QString::number(pct, 'f', 1)));
-                }
+                QPieSlice *slice = series->append("Aucune donnee", 1);
+                slice->setBrush(QColor("#c9b8aa"));
                 slice->setLabelVisible(true);
             }
 
             auto *chart = new QChart();
             chart->addSeries(series);
             chart->setTitle(QString());
+            chart->setAnimationOptions(QChart::SeriesAnimations);
             chart->legend()->setVisible(true);
             chart->legend()->setAlignment(Qt::AlignBottom);
+            chart->legend()->setLabelColor(QColor("#4e3a2d"));
             chart->setBackgroundVisible(false);
             chart->setMargins(QMargins(0, 0, 0, 0));
 
+            if (chartView->chart()) {
+                chartView->chart()->deleteLater();
+            }
             chartView->setChart(chart);
+            chartView->setStyleSheet("background: transparent;");
         }
     }
 
-    // ===== MISE À JOUR DE L'ONGLET STATS DANS LA PAGE LISTE =====
     ui->lbl_total_orders_val->setText(QString::number(totalOrders));
     ui->lbl_top_client_val->setText("N/A");
 
-    // Mise à jour des statistiques détaillées de l'onglet
-    QString typeStatsTab = "📊 Répartition par type:\n";
+    QString typeStatsTab = "Repartition par type:\n";
     for (auto it = typeCount.begin(); it != typeCount.end(); ++it) {
-        typeStatsTab += QString("• %1: %2 commandes\n").arg(it.key()).arg(it.value());
+        typeStatsTab += QString("- %1: %2 commandes\n").arg(it.key()).arg(it.value());
     }
-    ui->lbl_type_stats->setText(typeStatsTab.isEmpty() ? "Aucune donnée." : typeStatsTab);
+    ui->lbl_type_stats->setText(typeCount.isEmpty() ? "Aucune donnee." : typeStatsTab);
 
-    ui->lbl_city_stats->setText("Répartition par ville: N/A");
+    ui->lbl_city_stats->setText("Repartition par ville: N/A");
 
-    QString priceStatsTab = QString("💰 Revenu total: %1 DT\n💵 Prix moyen: %2 DT\n📦 En attente: %3")
-                                .arg(QString::number(totalRevenue, 'f', 2),
-                                     QString::number(avgPrice, 'f', 2),
-                                     QString::number(pendingOrders));
+    const QString priceStatsTab = QString("Revenu total: %1 DT\nPrix moyen: %2 DT\nEn attente: %3\nLivrees/expediees: %4")
+                                     .arg(QString::number(totalRevenue, 'f', 2))
+                                     .arg(QString::number(avgPrice, 'f', 2))
+                                     .arg(pendingOrders)
+                                     .arg(deliveredOrders);
     ui->lbl_price_stats->setText(priceStatsTab);
+
+    // Animer la mise à jour des statistiques
+    animateStatisticsUpdate();
 }
 
 void MainWindow::displayOrdersForUpdate()
@@ -2256,18 +3199,18 @@ void MainWindow::displayOrdersForUpdate()
             table_update->setHorizontalHeaderLabels({"ID", "Type", "Quantité", "Email", "Status"});
             table_update->setMaximumHeight(200);
             table_update->setMinimumHeight(150);
-
+            
             // Ajouter à la première position du layout si c'est un VBox
             QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(ui->page_update->layout());
             if (layout) {
                 layout->insertWidget(0, table_update);
             }
-
+            
             // Connexion pour charger une commande au double-clic
             connect(table_update, &QTableWidget::cellDoubleClicked, this, [=](int row, int) {
                 QString orderId = table_update->item(row, 0)->text();
                 ui->le_id_update_search->setText(orderId);
-
+                
                 // Simuler un clic sur le bouton CHARGER
                 if (ui->btn_search_update) {
                     ui->btn_search_update->click();
@@ -2275,22 +3218,22 @@ void MainWindow::displayOrdersForUpdate()
             });
         }
     }
-
+    
     // Remplir la table avec les commandes actuelles
     if (table_update) {
         table_update->setRowCount(0);
-
+        
         for (int row = 0; row < ui->table_list->rowCount(); ++row) {
             QTableWidgetItem *idItem = ui->table_list->item(row, 0);
             QTableWidgetItem *typeItem = ui->table_list->item(row, 1);
             QTableWidgetItem *qtyItem = ui->table_list->item(row, 2);
             QTableWidgetItem *emailItem = ui->table_list->item(row, 3);
             QTableWidgetItem *statusItem = ui->table_list->item(row, 9);
-
+            
             if (idItem && typeItem && qtyItem && emailItem && statusItem) {
                 int newRow = table_update->rowCount();
                 table_update->insertRow(newRow);
-
+                
                 table_update->setItem(newRow, 0, new QTableWidgetItem(idItem->text()));
                 table_update->setItem(newRow, 1, new QTableWidgetItem(typeItem->text()));
                 table_update->setItem(newRow, 2, new QTableWidgetItem(qtyItem->text()));
@@ -2298,9 +3241,12 @@ void MainWindow::displayOrdersForUpdate()
                 table_update->setItem(newRow, 4, new QTableWidgetItem(statusItem->text()));
             }
         }
-
+        
         // Ajuster la largeur des colonnes
         table_update->resizeColumnsToContents();
+        
+        // Animer l'apparition de la table
+        animateTableItemAppearance(table_update);
     }
 }
 
@@ -2310,25 +3256,25 @@ void MainWindow::applyAdvancedFilters()
 {
     // Appliquer les filtres et mettre à jour le calendrier
     updateCalendarHighlights();
-
+    
     QDate selectedDate = ui->calendarWidget->selectedDate();
     updateDeliveryList(selectedDate);
-
+    
     QMessageBox::information(this, "Filtres appliqués",
-                             "Les filtres avancés ont été appliqués\nau calendrier et aux listes.");
+        "Les filtres avancés ont été appliqués\nau calendrier et aux listes.");
 }
 
 void MainWindow::clearAdvancedFilters()
 {
     // Réinitialiser tous les filtres
     updateCalendarHighlights();
-
+    
     QDate selectedDate = ui->calendarWidget->selectedDate();
     updateDeliveryList(selectedDate);
     updateStatistics();
-
+    
     QMessageBox::information(this, "Filtres réinitialisés",
-                             "Tous les filtres ont été réinitialisés.");
+        "Tous les filtres ont été réinitialisés.");
 }
 
 // --- NOTIFICATIONS ET RAPPELS ---
@@ -2338,29 +3284,29 @@ void MainWindow::checkForNotifications()
     QDate today = QDate::currentDate();
     QDate tomorrow = today.addDays(1);
     QDate nextWeek = today.addDays(7);
-
+    
     int tomorrowCount = 0;
     int nextWeekCount = 0;
     int overdueCount = 0;
     int readyCount = 0;
-
+    
     // Parcourir les dates de livraison et vérifier les notifications
     for (auto it = deliveryDates.begin(); it != deliveryDates.end(); ++it) {
         QDate deliveryDate = it.key();
         QStringList orderIds = it.value();
-
+        
         if (deliveryDate == tomorrow) {
             tomorrowCount += orderIds.count();
         }
-
+        
         if (deliveryDate > tomorrow && deliveryDate <= nextWeek) {
             nextWeekCount += orderIds.count();
         }
-
+        
         if (deliveryDate < today) {
             overdueCount += orderIds.count();
         }
-
+        
         // Compter les commandes prêtes
         for (const QString& orderId : orderIds) {
             QString status = deliveryStatuses[deliveryDate].value(orderId, "En attente");
@@ -2369,29 +3315,91 @@ void MainWindow::checkForNotifications()
             }
         }
     }
-
+    
     // Construire le message de notification
     QString notificationText;
-
+    
     if (overdueCount > 0) {
         notificationText += QString("⚠️ %1 commande(s) retardée(s)!\n\n").arg(overdueCount);
     }
-
+    
     if (tomorrowCount > 0) {
         notificationText += QString("📅 %1 livraison(s) demain!\n").arg(tomorrowCount);
     }
-
+    
     if (nextWeekCount > 0) {
         notificationText += QString("📆 %1 livraison(s) cette semaine!\n").arg(nextWeekCount);
     }
-
+    
     if (readyCount > 0) {
         notificationText += QString("\n✅ %1 commande(s) prête(s) à être livrée(s)!").arg(readyCount);
     }
-
+    
     // Afficher une notification si nécessaire
     if (!notificationText.isEmpty() && (overdueCount > 0 || tomorrowCount > 0 || readyCount > 0)) {
-        QMessageBox::warning(this, "🔔 Notifications de Livraison", notificationText);
+        // Créer une notification personnalisée avec style luxe
+        QDialog* notifDialog = new QDialog(this);
+        notifDialog->setWindowTitle("Notifications de Livraison");
+        notifDialog->setAttribute(Qt::WA_DeleteOnClose);
+        notifDialog->setMinimumWidth(550);
+        
+        // Déterminer la couleur selon la priorité
+        QString bgGradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5A6C7D, stop:1 #3D4E5C)";
+        QString borderColor = "#2C3E50";
+        QString titleText = "🔔 Notifications de Livraison";
+        
+        if (overdueCount > 0) {
+            bgGradient = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5A6C7D, stop:1 #3D4E5C)";
+            titleText = "⚠ NOTIFICATIONS DE LIVRAISON";
+        }
+        
+        QString dialogStyle = QString(
+            "QDialog { background: %1; border: 2px solid %2; border-radius: 12px; }"
+        ).arg(bgGradient, borderColor);
+        
+        notifDialog->setStyleSheet(dialogStyle);
+        
+        QVBoxLayout* layout = new QVBoxLayout(notifDialog);
+        layout->setSpacing(12);
+        layout->setContentsMargins(20, 20, 20, 20);
+        
+        // Titre
+        QLabel* titleLabel = new QLabel(titleText);
+        titleLabel->setStyleSheet(
+            "color: white; font-weight: bold; font-size: 14px; "
+            "background: transparent; padding: 8px;"
+        );
+        layout->addWidget(titleLabel);
+        
+        // Contenu
+        QLabel* contentLabel = new QLabel(notificationText);
+        contentLabel->setWordWrap(true);
+        contentLabel->setStyleSheet(
+            "color: white; font-size: 12px; "
+            "background: rgba(255, 255, 255, 0.15); "
+            "border-left: 4px solid #A8D5E2; "
+            "border-radius: 6px; padding: 12px; "
+            "margin: 8px 0px;"
+        );
+        layout->addWidget(contentLabel);
+        
+        // Bouton OK
+        QPushButton* okBtn = new QPushButton("OK");
+        okBtn->setStyleSheet(
+            "QPushButton { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E8E8E8, stop:1 #D0D0D0); "
+            "color: #2C3E50; font-weight: bold; border: none; border-radius: 6px; "
+            "padding: 8px 20px; min-width: 80px; } "
+            "QPushButton:hover { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFFFFF, stop:1 #E0E0E0); } "
+            "QPushButton:pressed { background: #D0D0D0; }"
+        );
+        
+        layout->addWidget(okBtn, 0, Qt::AlignRight);
+        
+        QObject::connect(okBtn, &QPushButton::clicked, notifDialog, &QDialog::accept);
+        
+        notifDialog->exec();
     }
 }
 
@@ -2399,162 +3407,154 @@ void MainWindow::checkForNotifications()
 
 QString MainWindow::getEmailTemplate(const QString &templateName, const QMap<QString, QString> &data)
 {
-    QString template_html;
+    const QString orderId = data.value("id").trimmed().isEmpty() ? "-" : data.value("id").trimmed();
+    const QString type = data.value("type");
+    const QString qty = data.value("qty");
+    const QString price = data.value("price");
+    const QString orderDate = data.value("orderDate");
+    const QString deliveryDate = data.value("deliveryDate");
+    const QString status = data.value("status");
+
+    const QString standardRows =
+        detailRowHtml("Type de produit", type) +
+        detailRowHtml("Quantite", qty) +
+        detailRowHtml("Prix total", price + " DT") +
+        detailRowHtml("Date de commande", orderDate) +
+        detailRowHtml("Date de livraison", deliveryDate) +
+        detailStatusRowHtml("Statut", status);
 
     if (templateName == "confirmation") {
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #f8f5f2; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #8B4513;'>✅ Confirmation de Commande</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Votre commande <strong>#%1</strong> a été confirmée avec succès.</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #8B4513;'>"
-                            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
-                            "<ul>"
-                            "<li><strong>Type de produit:</strong> %2</li>"
-                            "<li><strong>Quantité:</strong> %3</li>"
-                            "<li><strong>Prix total:</strong> %4 DT</li>"
-                            "<li><strong>Date de commande:</strong> %5</li>"
-                            "<li><strong>Date de livraison prévue:</strong> %6</li>"
-                            "<li><strong>Statut:</strong> <span style='color: #4CAF50;'>%7</span></li>"
-                            "</ul>"
-                            "</div>"
-                            "<p>Nous vous remercions pour votre confiance.</p>"
-                            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
-                            "Ceci est un email automatique, merci de ne pas y répondre."
-                            "</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
-                                 data.value("price"), data.value("orderDate"), data.value("deliveryDate"),
-                                 data.value("status"));
-    }
-    else if (templateName == "livraison") {
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #e8f5e9; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #2E7D32;'>🚚 Notification de Livraison</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Votre commande <strong>#%1</strong> est prête pour la livraison!</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #4CAF50;'>"
-                            "<h3 style='margin-top: 0;'>Informations de livraison:</h3>"
-                            "<ul>"
-                            "<li><strong>Produit:</strong> %2</li>"
-                            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
-                            "<li><strong>Date de livraison:</strong> %4</li>"
-                            "<li><strong>Statut:</strong> <span style='color: #4CAF50; font-weight: bold;'>PRÊTE</span></li>"
-                            "</ul>"
-                            "</div>"
-                            "<p style='background-color: #FFF9C4; padding: 10px; border-radius: 5px;'>"
-                            "⏰ Veuillez vous assurer d'être disponible à la date prévue."
-                            "</p>"
-                            "<p>Cordialement,<br>L'équipe de gestion</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("deliveryDate"));
-    }
-    else if (templateName == "retard") {
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #ffebee; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #c62828;'>⚠️ Notification de Retard</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Nous vous informons que la commande <strong>#%1</strong> a subi un retard.</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #f44336;'>"
-                            "<h3 style='margin-top: 0;'>Détails:</h3>"
-                            "<ul>"
-                            "<li><strong>Produit:</strong> %2</li>"
-                            "<li><strong>Date initialement prévue:</strong> %3</li>"
-                            "<li><strong>Nouvelle date estimée:</strong> En cours de détermination</li>"
-                            "</ul>"
-                            "</div>"
-                            "<p>Nous nous excusons pour ce désagrément et mettons tout en œuvre pour accélérer la livraison.</p>"
-                            "<p>Cordialement,<br>L'équipe de gestion</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("deliveryDate"));
-    }
-    else if (templateName == "attente") {
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #fff8e1; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #f57c00;'>⏳ Commande en Attente</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Votre commande <strong>#%1</strong> est actuellement en attente de traitement.</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #ff9800;'>"
-                            "<h3 style='margin-top: 0;'>Détails de la commande:</h3>"
-                            "<ul>"
-                            "<li><strong>Produit:</strong> %2</li>"
-                            "<li><strong>Quantité:</strong> %3 unité(s)</li>"
-                            "<li><strong>Date de commande:</strong> %4</li>"
-                            "<li><strong>Date de livraison prévue:</strong> %5</li>"
-                            "<li><strong>Statut:</strong> <span style='color: #ff9800; font-weight: bold;'>EN ATTENTE</span></li>"
-                            "</ul>"
-                            "</div>"
-                            "<p style='background-color: #e3f2fd; padding: 10px; border-radius: 5px;'>"
-                            "ℹ️ Nous vous tiendrons informé(e) dès que votre commande sera traitée."
-                            "</p>"
-                            "<p>Merci pour votre patience.<br>Cordialement,<br>L'équipe de gestion</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
-                                 data.value("orderDate"), data.value("deliveryDate"));
-    }
-    else if (templateName == "modification") {
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #e3f2fd; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #1976D2;'>🔄 Mise à Jour de Commande</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Votre commande <strong>#%1</strong> a été modifiée.</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0; border-left: 4px solid #2196F3;'>"
-                            "<h3 style='margin-top: 0;'>Détails actuels de la commande:</h3>"
-                            "<ul>"
-                            "<li><strong>Type de produit:</strong> %2</li>"
-                            "<li><strong>Quantité:</strong> %3</li>"
-                            "<li><strong>Prix total:</strong> %4 DT</li>"
-                            "<li><strong>Date de commande:</strong> %5</li>"
-                            "<li><strong>Date de livraison prévue:</strong> %6</li>"
-                            "<li><strong>Statut:</strong> <span style='color: #1976D2;'>%7</span></li>"
-                            "</ul>"
-                            "</div>"
-                            "%8"
-                            "<p>Nous vous remercions pour votre confiance.</p>"
-                            "<p style='color: #666; font-size: 12px; margin-top: 30px;'>"
-                            "Ceci est un email automatique, merci de ne pas y répondre."
-                            "</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("qty"),
-                                 data.value("price"), data.value("orderDate"), data.value("deliveryDate"),
-                                 data.value("status"),
-                                 data.contains("changes") && !data.value("changes").isEmpty()
-                                     ? QString("<div style='background-color: #fff3e0; padding: 15px; margin: 20px 0; border-left: 4px solid #FF9800; border-radius: 5px;'>"
-                                               "<h3 style='margin-top: 0; color: #E65100;'>📝 Modifications effectuées:</h3>"
-                                               "<p style='font-size: 14px; line-height: 1.8;'>• %1</p>"
-                                               "</div>").arg(data.value("changes"))
-                                     : QString());
-    }
-    else {
-        // Template par défaut
-        template_html = QString(
-                            "<html><body style='font-family: Arial, sans-serif;'>"
-                            "<div style='background-color: #f5f5f5; padding: 20px; border-radius: 10px;'>"
-                            "<h2 style='color: #8B4513;'>📧 Notification</h2>"
-                            "<p>Bonjour,</p>"
-                            "<p>Ceci est une notification concernant votre commande <strong>#%1</strong>.</p>"
-                            "<div style='background-color: white; padding: 15px; margin: 20px 0;'>"
-                            "<p><strong>Type:</strong> %2</p>"
-                            "<p><strong>Quantité:</strong> %3</p>"
-                            "<p><strong>Statut:</strong> %4</p>"
-                            "</div>"
-                            "<p>Cordialement,<br>L'équipe de gestion</p>"
-                            "</div>"
-                            "</body></html>"
-                            ).arg(data.value("id"), data.value("type"), data.value("qty"), data.value("status"));
+        const QString body = QString(
+            "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+            "<p style='margin:0;'>Votre commande <strong>#%1</strong> a ete confirmee avec succes.</p>"
+            "%2"
+            "<p style='margin:18px 0 0 0;'>Merci pour votre confiance.</p>"
+        ).arg(orderId.toHtmlEscaped(), detailsCardHtml("Recapitulatif de votre commande", standardRows, "#d9b79e"));
+
+        return wrapMailTemplate(
+            "Confirmation de commande",
+            "Votre demande est bien enregistree.",
+            "#8B5E3C",
+            "#C68E65",
+            body
+        );
     }
 
-    return template_html;
+    if (templateName == "livraison") {
+        const QString rows =
+            detailRowHtml("Produit", type) +
+            detailRowHtml("Quantite", qty) +
+            detailRowHtml("Date de livraison", deliveryDate) +
+            detailStatusRowHtml("Statut", status);
+
+        const QString body = QString(
+            "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+            "<p style='margin:0;'>Votre commande <strong>#%1</strong> est prete pour la livraison.</p>"
+            "%2"
+            "<div style='margin-top:18px;background:#eef8ef;border:1px solid #b9dfc2;border-radius:12px;padding:14px 16px;color:#2a5f38;'>"
+            "Veuillez vous assurer d'etre disponible a la date indiquee."
+            "</div>"
+        ).arg(orderId.toHtmlEscaped(), detailsCardHtml("Informations de livraison", rows, "#a8d3b0"));
+
+        return wrapMailTemplate(
+            "Notification de livraison",
+            "Votre commande avance vers la livraison.",
+            "#3f8f6a",
+            "#2f6f54",
+            body
+        );
+    }
+
+    if (templateName == "retard") {
+        const QString rows =
+            detailRowHtml("Produit", type) +
+            detailRowHtml("Date initialement prevue", deliveryDate) +
+            detailStatusRowHtml("Statut", status);
+
+        const QString body = QString(
+            "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+            "<p style='margin:0;'>La commande <strong>#%1</strong> subit un retard de traitement.</p>"
+            "%2"
+            "<div style='margin-top:18px;background:#fdecec;border:1px solid #e7a3a3;border-radius:12px;padding:14px 16px;color:#7a2323;'>"
+            "Nous mettons tout en oeuvre pour accelerer la preparation et vous informer de la nouvelle echeance."
+            "</div>"
+        ).arg(orderId.toHtmlEscaped(), detailsCardHtml("Point de situation", rows, "#e7a3a3"));
+
+        return wrapMailTemplate(
+            "Notification de retard",
+            "Mise a jour importante sur votre commande.",
+            "#b95e5e",
+            "#8b1e1e",
+            body
+        );
+    }
+
+    if (templateName == "attente") {
+        const QString rows =
+            detailRowHtml("Produit", type) +
+            detailRowHtml("Quantite", qty) +
+            detailRowHtml("Date de commande", orderDate) +
+            detailRowHtml("Date de livraison prevue", deliveryDate) +
+            detailStatusRowHtml("Statut", status);
+
+        const QString body = QString(
+            "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+            "<p style='margin:0;'>Votre commande <strong>#%1</strong> est en attente de traitement.</p>"
+            "%2"
+            "<div style='margin-top:18px;background:#fff7e6;border:1px solid #ecd2a0;border-radius:12px;padding:14px 16px;color:#6e4b19;'>"
+            "Nous vous informerons des que le traitement passe a l'etape suivante."
+            "</div>"
+        ).arg(orderId.toHtmlEscaped(), detailsCardHtml("Suivi de la commande", rows, "#ecd2a0"));
+
+        return wrapMailTemplate(
+            "Commande en attente",
+            "Votre dossier est bien pris en charge.",
+            "#c38a45",
+            "#8f622d",
+            body
+        );
+    }
+
+    if (templateName == "modification") {
+        const QString body = QString(
+            "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+            "<p style='margin:0;'>Votre commande <strong>#%1</strong> a ete mise a jour.</p>"
+            "%2"
+            "%3"
+            "<p style='margin:18px 0 0 0;'>Merci pour votre confiance.</p>"
+        ).arg(
+            orderId.toHtmlEscaped(),
+            detailsCardHtml("Etat actuel de la commande", standardRows, "#9bc8e0"),
+            changesBlockHtml(data.value("changes"))
+        );
+
+        return wrapMailTemplate(
+            "Mise a jour de commande",
+            "Les informations de votre commande viennent d'etre actualisees.",
+            "#5a8db8",
+            "#2f658e",
+            body
+        );
+    }
+
+    const QString fallbackRows =
+        detailRowHtml("Type de produit", type) +
+        detailRowHtml("Quantite", qty) +
+        detailStatusRowHtml("Statut", status);
+
+    const QString body = QString(
+        "<p style='margin:0 0 12px 0;'>Bonjour,</p>"
+        "<p style='margin:0;'>Ceci est une notification concernant votre commande <strong>#%1</strong>.</p>"
+        "%2"
+    ).arg(orderId.toHtmlEscaped(), detailsCardHtml("Informations disponibles", fallbackRows, "#d8bca8"));
+
+    return wrapMailTemplate(
+        "Notification commande",
+        "Mise a jour d'information.",
+        "#8b6b54",
+        "#6f4f39",
+        body
+    );
 }
 
 // Fonction désactivée - Envoi automatique uniquement depuis la modification de statut
@@ -2576,13 +3576,13 @@ void MainWindow::saveEmailHistory()
         file.close();
     }
 }
-
+        
         qDebug() << "Ligne" << row << "- Email:" << emailClient << "| Match:" << (emailClient.toLower() == email.toLower());
-
+        
         if (emailClient.toLower() == email.toLower()) {
             QString id = ui->table_list->item(row, 0)->text();
             commandesClient.append(id);
-
+            
             QMap<QString, QString> details;
             details["id"] = id;
             details["type"] = ui->table_list->item(row, 1)->text();
@@ -2592,14 +3592,14 @@ void MainWindow::saveEmailHistory()
             details["deliveryDate"] = ui->table_list->item(row, 6)->text();
             details["price"] = ui->table_list->item(row, 7)->text();
             details["status"] = ui->table_list->item(row, 9)->text();
-
+            
             detailsCommandes.append(details);
         }
     }
-
+    
     qDebug() << "Emails disponibles dans la base:" << allEmails;
     qDebug() << "Commandes trouvées:" << commandesClient.size();
-
+    
     if (commandesClient.isEmpty()) {
         QString errorMsg = QString(
             "Aucune commande trouvée pour l'email:\n%1\n\n"
@@ -2607,7 +3607,7 @@ void MainWindow::saveEmailHistory()
             "• Total de commandes: %2\n"
             "• Clients différents: %3\n\n"
         ).arg(email).arg(ui->table_list->rowCount()).arg(allEmails.size());
-
+        
         if (!allEmails.isEmpty()) {
             errorMsg += "💡 Emails disponibles:\n";
             int count = 0;
@@ -2624,27 +3624,27 @@ void MainWindow::saveEmailHistory()
             errorMsg += "⚠️ Aucune commande avec email dans la base.\n"
                        "Vérifiez que les commandes sont bien chargées.";
         }
-
+        
         QMessageBox::warning(this, "❌ Aucune commande trouvée", errorMsg);
         return;
     }
-
+    
     // Proposer le type d'email à envoyer
     QStringList emailTypes;
     emailTypes << "Confirmation de commande" << "Notification de livraison" << "Alerte de retard" << "Email personnalisé";
-
+    
     bool ok;
     QString typeEmail = QInputDialog::getItem(this, "Type d'email",
         QString("Client: %1\n%2 commande(s) trouvée(s)\n\nChoisir le type d'email:")
             .arg(email).arg(commandesClient.size()),
         emailTypes, 0, false, &ok);
-
+    
     if (!ok) return;
-
+    
     // Sélectionner la commande si plusieurs
     QString selectedOrder;
     QMap<QString, QString> orderData;
-
+    
     if (commandesClient.size() == 1) {
         selectedOrder = commandesClient.first();
         orderData = detailsCommandes.first();
@@ -2652,7 +3652,7 @@ void MainWindow::saveEmailHistory()
         selectedOrder = QInputDialog::getItem(this, "Sélectionner une commande",
             "Choisir la commande:", commandesClient, 0, false, &ok);
         if (!ok) return;
-
+        
         for (const auto &details : detailsCommandes) {
             if (details.value("id") == selectedOrder) {
                 orderData = details;
@@ -2660,15 +3660,15 @@ void MainWindow::saveEmailHistory()
             }
         }
     }
-
+    
     // Générer le contenu de l'email
     QString subject;
     QString body;
-
+    
     if (typeEmail == "Confirmation de commande") {
         subject = QString("Confirmation de votre commande #%1").arg(selectedOrder);
         body = getEmailTemplate("confirmation", orderData);
-    }
+    } 
     else if (typeEmail == "Notification de livraison") {
         subject = QString("Votre commande #%1 est prête!").arg(selectedOrder);
         body = getEmailTemplate("livraison", orderData);
@@ -2680,7 +3680,7 @@ void MainWindow::saveEmailHistory()
     else {
         subject = QInputDialog::getText(this, "Sujet de l'email", "Entrez le sujet:");
         if (subject.isEmpty()) return;
-
+        
         QInputDialog dialog(this);
         dialog.setWindowTitle("Corps de l'email");
         dialog.setLabelText("Entrez le message:");
@@ -2694,34 +3694,34 @@ void MainWindow::saveEmailHistory()
             "L'équipe de gestion"
         ).arg(orderData["id"], orderData["type"], orderData["qty"], orderData["status"]));
         dialog.setOption(QInputDialog::UseListViewForComboBoxItems);
-
+        
         if (dialog.exec() == QDialog::Accepted) {
             body = dialog.textValue();
         } else {
             return;
         }
     }
-
+    
     // Envoyer l'email
     bool sent = sendEmail(email, subject, body);
-
+    
     if (sent) {
         // Ajouter à l'historique
         addToEmailHistory(email, subject, body, typeEmail, selectedOrder);
-
-        QMessageBox::information(this, "✅ Email envoyé",
+        
+        QMessageBox::information(this, "✅ Email envoyé", 
             QString("Email envoyé avec succès à: %1\n\n"
                     "Sujet: %2\n"
                     "Commande: #%3\n"
                     "Type: %4").arg(email, subject, selectedOrder, typeEmail));
         ui->le_email_simple->clear();
-
+        
         // Log dans la console
         qDebug() << "EMAIL ENVOYÉ:";
         qDebug() << "  Destinataire:" << email;
         qDebug() << "  Sujet:" << subject;
         qDebug() << "  Commande:" << selectedOrder;
-
+        
         // Rafraîchir l'affichage de l'historique si visible
         if (table_email_history) {
             displayEmailHistory();
@@ -2740,7 +3740,7 @@ bool MainWindow::sendEmail(const QString &to, const QString &subject, const QStr
     qDebug() << "=== ENVOI AUTOMATIQUE D'EMAIL ===";
     qDebug() << "À:" << to;
     qDebug() << "Sujet:" << subject;
-
+    
     // Envoi automatique via SMTP
     return sendEmailSMTP(to, subject, body);
 }
@@ -2756,24 +3756,24 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
     qDebug() << "Email expéditeur:" << smtpUsername;
     qDebug() << "Mot de passe configuré:" << (!smtpPassword.isEmpty() ? "OUI" : "NON");
     qDebug() << "========================================";
-
+    
     // Vérifier si les identifiants SMTP sont configurés
     if (smtpUsername.isEmpty() || smtpPassword.isEmpty()) {
         QMessageBox msgBox(this);
         msgBox.setWindowTitle("⚙️ Configuration SMTP Gmail");
         msgBox.setText("Pour envoyer des emails automatiquement, vous devez configurer votre compte Gmail.\n\n"
-                       "📌 IMPORTANT:\n"
-                       "• Utilisez un 'Mot de passe d'application' Gmail\n"
-                       "• Allez sur: myaccount.google.com → Sécurité → Validation en 2 étapes → Mots de passe d'application\n"
-                       "• Créez un mot de passe pour 'Mail' et copiez-le\n\n"
-                       "Voulez-vous configurer maintenant?");
+                      "📌 IMPORTANT:\n"
+                      "• Utilisez un 'Mot de passe d'application' Gmail\n"
+                      "• Allez sur: myaccount.google.com → Sécurité → Validation en 2 étapes → Mots de passe d'application\n"
+                      "• Créez un mot de passe pour 'Mail' et copiez-le\n\n"
+                      "Voulez-vous configurer maintenant?");
         msgBox.setIcon(QMessageBox::Question);
         msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-
+        
         if (msgBox.exec() == QMessageBox::No) {
             return false;
         }
-
+        
         // Demander l'email
         bool ok;
         smtpUsername = QInputDialog::getText(this, "📧 Email Gmail",
@@ -2781,7 +3781,7 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
                                              QLineEdit::Normal, "", &ok);
         if (!ok || smtpUsername.isEmpty()) return false;
         smtpUsername = smtpUsername.trimmed();
-
+        
         // Demander le mot de passe d'application
         smtpPassword = QInputDialog::getText(this, "🔑 Mot de passe d'application",
                                              "Entrez votre mot de passe d'application Gmail:\n"
@@ -2797,89 +3797,59 @@ bool MainWindow::sendEmailSMTP(const QString &to, const QString &subject, const 
     smtpPassword = smtpPassword.trimmed();
     smtpPassword.remove(' ');
 
-    // Créer le client SMTP
+    // Envoi synchrone contrôlé: évite les faux timeouts/UI parasites.
     SmtpClient *smtp = new SmtpClient(this);
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+
+    bool finished = false;
+    bool success = false;
+    QString resultMessage;
+
+    connect(smtp, &SmtpClient::emailSent, this,
+            [&](bool ok, const QString &message) {
+                success = ok;
+                resultMessage = message;
+                finished = true;
+                loop.quit();
+            });
+
+    connect(&timeoutTimer, &QTimer::timeout, this,
+            [&]() {
+                if (finished) {
+                    return;
+                }
+                success = false;
+                resultMessage = "Timeout SMTP: aucune reponse du serveur.";
+                finished = true;
+                loop.quit();
+            });
 
     qDebug() << "========================================";
-    qDebug() << "🚀 Création du client SMTP...";
-    qDebug() << "Serveur:" << smtpServer;
-    qDebug() << "Port:" << smtpPort;
+    qDebug() << "🚀 LANCEMENT DE L'ENVOI SMTP...";
+    qDebug() << "Serveur:" << smtpServer << ":" << smtpPort;
     qDebug() << "De:" << smtpUsername;
     qDebug() << "À:" << to;
     qDebug() << "========================================";
 
-    // Créer la boîte d'attente AVANT de connecter le signal
-    QMessageBox *waitBox = new QMessageBox(this);
-    waitBox->setWindowTitle("📤 Envoi en cours...");
-    waitBox->setText(QString("Envoi de l'email à %1...\n\n"
-                             "⏳ Connexion au serveur SMTP...\n"
-                             "Veuillez patienter...").arg(to));
-    waitBox->setStandardButtons(QMessageBox::NoButton);
-    waitBox->setIcon(QMessageBox::Information);
-
-    // Connecter le signal de résultat
-    connect(smtp, &SmtpClient::emailSent, this, [this, smtp, waitBox](bool success, const QString &message) {
-        qDebug() << "========================================";
-        qDebug() << "📨 CALLBACK emailSent reçu!";
-        qDebug() << "Succès:" << success;
-        qDebug() << "Message:" << message;
-        qDebug() << "========================================";
-
-        // Fermer la boîte d'attente
-        if (waitBox) {
-            waitBox->close();
-            waitBox->deleteLater();
-        }
-
-        // Afficher le résultat
-        if (success) {
-            QMessageBox::information(this, "✅ Email envoyé!",
-                                     QString("Email envoyé avec succès!\n\n"
-                                             "Destinataire: %1\n\n"
-                                             "Vérifiez votre boîte Gmail dans quelques instants.").arg(
-                                             waitBox ? waitBox->text().split("à ").last().split("...").first() : ""));
-        } else {
-            QMessageBox::critical(this, "❌ Erreur d'envoi",
-                                  QString("Impossible d'envoyer l'email.\n\n"
-                                          "Erreur: %1\n\n"
-                                          "Vérifiez:\n"
-                                          "• Votre connexion Internet\n"
-                                          "• Le mot de passe d'application Gmail\n"
-                                          "• Les logs dans la console").arg(message));
-        }
-
-        smtp->deleteLater();
-    });
-
-    // Envoyer l'email
-    qDebug() << "========================================";
-    qDebug() << "🚀 LANCEMENT DE L'ENVOI SMTP...";
-    qDebug() << "========================================";
+    timeoutTimer.start(30000);
     smtp->sendEmail(smtpUsername, to, subject, body, smtpServer, smtpPort, smtpUsername, smtpPassword);
 
-    // Afficher la boîte d'attente (elle sera fermée par le callback)
-    waitBox->show();
+    if (!finished) {
+        loop.exec();
+    }
 
-    // Timeout de sécurité - fermer après 10 secondes si pas de réponse
-    QTimer::singleShot(10000, this, [waitBox, smtp]() {
-        if (waitBox && waitBox->isVisible()) {
-            qDebug() << "⚠️ TIMEOUT: Aucune réponse après 10 secondes";
-            waitBox->close();
+    timeoutTimer.stop();
+    smtp->deleteLater();
 
-            QString logPath = QDir::currentPath() + "/smtp_debug.log";
-            QMessageBox::critical(nullptr, "❌ Échec d'envoi",
-                                  QString("La connexion SMTP a échoué.\n\n"
-                                          "Vérifications nécessaires:\n"
-                                          "• Connexion Internet active\n"
-                                          "• Port 587 non bloqué par le firewall\n"
-                                          "• Mot de passe d'application Gmail valide\n\n"
-                                          "Fichier de log: %1").arg(logPath));
+    if (!success) {
+        qDebug() << "❌ Echec SMTP:" << resultMessage;
+    } else {
+        qDebug() << "✅ Email SMTP envoye a" << to;
+    }
 
-            smtp->deleteLater();
-        }
-    });
-
-    return true;
+    return success;
 }
 
 // --- HISTORIQUE DES EMAILS ---
@@ -2893,14 +3863,14 @@ void MainWindow::addToEmailHistory(const QString &to, const QString &subject, co
     entry.body = body;
     entry.type = type;
     entry.orderID = orderID;
-
+    
     emailHistory.prepend(entry); // Ajouter au début (plus récent en premier)
-
+    
     // Limiter à 100 emails maximum
     if (emailHistory.size() > 100) {
         emailHistory.removeLast();
     }
-
+    
     saveEmailHistory();
     qDebug() << "Email ajouté à l'historique:" << to << subject;
 }
@@ -2909,29 +3879,29 @@ void MainWindow::loadEmailHistory()
 {
     QString historyFile = "emails_history.csv";
     QFile file(historyFile);
-
+    
     emailHistory.clear();
-
+    
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qDebug() << "Aucun historique d'emails trouvé, création d'un nouveau.";
         return;
     }
-
+    
     QTextStream in(&file);
     bool firstLine = true;
-
+    
     while (!in.atEnd()) {
         QString line = in.readLine();
-
+        
         // Ignorer la ligne d'en-tête
         if (firstLine) {
             firstLine = false;
             continue;
         }
-
+        
         // Parser le CSV (format: DateTime,To,Subject,Type,OrderID,Body)
         QStringList parts = line.split("|||"); // Séparateur spécial pour éviter problèmes avec virgules
-
+        
         if (parts.size() >= 6) {
             EmailHistory entry;
             entry.dateTime = QDateTime::fromString(parts[0], "yyyy-MM-dd hh:mm:ss");
@@ -2940,11 +3910,11 @@ void MainWindow::loadEmailHistory()
             entry.type = parts[3];
             entry.orderID = parts[4];
             entry.body = parts[5];
-
+            
             emailHistory.append(entry);
         }
     }
-
+    
     file.close();
     qDebug() << "Historique chargé:" << emailHistory.size() << "emails";
 }
@@ -2953,19 +3923,19 @@ void MainWindow::saveEmailHistory()
 {
     QString historyFile = "emails_history.csv";
     QFile file(historyFile);
-
+    
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qDebug() << "Impossible de sauvegarder l'historique";
         return;
     }
-
+    
     QTextStream out(&file);
-
+    
     // En-tête
     out << "DateTime|||To|||Subject|||Type|||OrderID|||Body\n";
-
+    
     // Données
-    for (const EmailHistory &entry : std::as_const(emailHistory)) {
+    for (const EmailHistory &entry : emailHistory) {
         out << entry.dateTime.toString("yyyy-MM-dd hh:mm:ss") << "|||"
             << entry.to << "|||"
             << entry.subject << "|||"
@@ -2973,7 +3943,7 @@ void MainWindow::saveEmailHistory()
             << entry.orderID << "|||"
             << entry.body << "\n";
     }
-
+    
     file.close();
     qDebug() << "Historique sauvegardé:" << emailHistory.size() << "emails";
 }
@@ -2983,11 +3953,11 @@ void MainWindow::displayEmailHistory()
     // Créer ou réinitialiser la table
     if (!table_email_history) {
         table_email_history = new QTableWidget(this);
-
+        
         // Chercher le conteneur de l'historique dans l'UI
         // (On va l'ajouter dynamiquement à la page email)
         QWidget *emailPage = ui->page_email_auto;
-
+        
         // Créer un groupe pour l'historique
         QGroupBox *historyGroup = new QGroupBox("📜 Historique des Emails", emailPage);
         historyGroup->setObjectName("email_history_group");
@@ -3010,18 +3980,18 @@ void MainWindow::displayEmailHistory()
             "   color: white; "
             "   border-radius: 5px; "
             "}"
-            );
-
+        );
+        
         QVBoxLayout *historyLayout = new QVBoxLayout(historyGroup);
-
+        
         // === BARRE DE RECHERCHE ET FILTRAGE ===
         QHBoxLayout *searchLayout = new QHBoxLayout();
-
+        
         // Champ de recherche
         QLabel *searchLabel = new QLabel("🔍 Rechercher:", historyGroup);
         searchLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #8B4513;");
         searchLayout->addWidget(searchLabel);
-
+        
         search_email_history = new QLineEdit(historyGroup);
         search_email_history->setPlaceholderText("Chercher par destinataire, sujet, commande...");
         search_email_history->setStyleSheet(
@@ -3033,15 +4003,15 @@ void MainWindow::displayEmailHistory()
             "   background-color: white; "
             "}"
             "QLineEdit:focus { border-color: #8B4513; }"
-            );
+        );
         connect(search_email_history, &QLineEdit::textChanged, this, &MainWindow::filterEmailHistory);
         searchLayout->addWidget(search_email_history, 2);
-
+        
         // Filtre par type
         QLabel *filterLabel = new QLabel("📂 Type:", historyGroup);
         filterLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #8B4513; margin-left: 15px;");
         searchLayout->addWidget(filterLabel);
-
+        
         filter_email_type = new QComboBox(historyGroup);
         filter_email_type->addItem("Tous les types");
         filter_email_type->addItem("Confirmation de commande");
@@ -3064,8 +4034,8 @@ void MainWindow::displayEmailHistory()
             "   border: none; "
             "   width: 30px; "
             "}"
-            );
-        connect(filter_email_type, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        );
+        connect(filter_email_type, QOverload<int>::of(&QComboBox::currentIndexChanged), 
                 this, &MainWindow::filterEmailHistory);
         searchLayout->addWidget(filter_email_type, 1);
 
@@ -3085,18 +4055,18 @@ void MainWindow::displayEmailHistory()
             "QPushButton:hover { "
             "   background-color: #c82333; "
             "}"
-            );
+        );
         connect(btnClearHistory, &QPushButton::clicked, this, &MainWindow::clearEmailHistory);
         searchLayout->addWidget(btnClearHistory, 0, Qt::AlignRight);
-
+        
         historyLayout->addLayout(searchLayout);
-
+        
         // Séparateur
         QFrame *separator = new QFrame(historyGroup);
         separator->setFrameShape(QFrame::HLine);
         separator->setStyleSheet("background-color: #8B4513; margin: 10px 0;");
         historyLayout->addWidget(separator);
-
+        
         // Configuration de la table
         table_email_history->setColumnCount(6);
         table_email_history->setHorizontalHeaderLabels({"📅 Date", "📧 Destinataire", "📝 Sujet", "📂 Type", "🔖 Commande", "Actions"});
@@ -3113,8 +4083,8 @@ void MainWindow::displayEmailHistory()
             "QHeaderView::section { background-color: #8B4513; color: white; font-weight: bold; padding: 10px; font-size: 14px; }"
             "QTableWidget::item { padding: 8px; }"
             "QTableWidget::item:selected { background-color: #FFE4B5; }"
-            );
-
+        );
+        
         // Définir les largeurs de colonnes optimales
         table_email_history->setColumnWidth(0, 140);  // Date
         table_email_history->setColumnWidth(1, 250);  // Destinataire
@@ -3122,20 +4092,20 @@ void MainWindow::displayEmailHistory()
         table_email_history->setColumnWidth(3, 180);  // Type
         table_email_history->setColumnWidth(4, 100);  // Commande
         table_email_history->setColumnWidth(5, 120);  // Actions
-
+        
         // Permettre le redimensionnement manuel
         table_email_history->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         table_email_history->horizontalHeader()->setStretchLastSection(false);
-
+        
         // Activer le tri par clic sur les en-têtes
         table_email_history->setSortingEnabled(false); // On gère le tri manuellement
         table_email_history->horizontalHeader()->setSectionsClickable(true);
         connect(table_email_history->horizontalHeader(), &QHeaderView::sectionClicked,
                 this, &MainWindow::sortEmailHistory);
-
+        
         historyLayout->setSpacing(12);
         historyLayout->addWidget(table_email_history, 1);
-
+        
         // Ajouter le groupe à la page email
         QVBoxLayout *pageLayout = qobject_cast<QVBoxLayout*>(emailPage->layout());
         if (pageLayout) {
@@ -3143,40 +4113,50 @@ void MainWindow::displayEmailHistory()
             pageLayout->insertWidget(2, historyGroup, 1);
         }
     }
-
+    
     // Remplir la table avec l'historique (utiliser la fonction de tri)
     // Cela appliquera automatiquement le tri actuel (par défaut: date décroissante)
     sortEmailHistory(currentSortColumn);
+    
+    // Animer l'apparition de la table d'historique
+    if (table_email_history) {
+        animateTableItemAppearance(table_email_history);
+    }
 }
 
 void MainWindow::resendEmailFromHistory()
 {
     QPushButton *btn = qobject_cast<QPushButton*>(sender());
     if (!btn) return;
-
+    
     int index = btn->property("historyIndex").toInt();
     if (index < 0 || index >= emailHistory.size()) return;
-
+    
     const EmailHistory &entry = emailHistory[index];
-
+    
     // Demander confirmation
     QMessageBox::StandardButton reply = QMessageBox::question(this,
-                                                              "🔄 Renvoyer l'email?",
-                                                              QString("Êtes-vous sûr de vouloir renvoyer cet email?\n\n"
-                                                                      "📧 À: %1\n"
-                                                                      "📝 Sujet: %2\n"
-                                                                      "📅 Envoyé: %3")
-                                                                  .arg(entry.to, entry.subject, entry.dateTime.toString("dd/MM/yyyy hh:mm")),
-                                                              QMessageBox::Yes | QMessageBox::No);
-
+        "🔄 Renvoyer l'email?",
+        QString("Êtes-vous sûr de vouloir renvoyer cet email?\n\n"
+                "📧 À: %1\n"
+                "📝 Sujet: %2\n"
+                "📅 Envoyé: %3")
+            .arg(entry.to, entry.subject, entry.dateTime.toString("dd/MM/yyyy hh:mm")),
+        QMessageBox::Yes | QMessageBox::No);
+    
     if (reply == QMessageBox::Yes) {
         // Renvoyer l'email
         bool sent = sendEmail(entry.to, entry.subject, entry.body);
-
+        
         if (sent) {
             // Ajouter à l'historique avec marqueur de renvoi
             addToEmailHistory(entry.to, entry.subject + " [Renvoi]", entry.body, entry.type + " (Renvoi)", entry.orderID);
             displayEmailHistory(); // Rafraîchir l'affichage
+            QMessageBox::information(this, "✅ Renvoi effectué", "L'email a été renvoyé avec succès.");
+        } else {
+            QMessageBox::warning(this, "❌ Renvoi échoué",
+                                 "Impossible de renvoyer l'email pour le moment.\n"
+                                 "Vérifiez la connexion SMTP et réessayez.");
         }
     }
 }
@@ -3184,37 +4164,37 @@ void MainWindow::resendEmailFromHistory()
 void MainWindow::clearEmailHistory()
 {
     QMessageBox::StandardButton reply = QMessageBox::warning(this,
-                                                             "⚠️ Confirmation",
-                                                             "Êtes-vous sûr de vouloir effacer tout l'historique des emails?\n\n"
-                                                             "Cette action est irréversible!",
-                                                             QMessageBox::Yes | QMessageBox::No);
-
+        "⚠️ Confirmation",
+        "Êtes-vous sûr de vouloir effacer tout l'historique des emails?\n\n"
+        "Cette action est irréversible!",
+        QMessageBox::Yes | QMessageBox::No);
+    
     if (reply == QMessageBox::Yes) {
         emailHistory.clear();
         saveEmailHistory();
         displayEmailHistory();
-
+        
         QMessageBox::information(this, "✅ Historique effacé",
-                                 "L'historique des emails a été complètement effacé.");
+            "L'historique des emails a été complètement effacé.");
     }
 }
 
 void MainWindow::filterEmailHistory()
 {
     if (!table_email_history || !search_email_history || !filter_email_type) return;
-
+    
     QString searchText = search_email_history->text().toLower();
     QString selectedType = filter_email_type->currentText();
-
+    
     // Parcourir toutes les lignes et afficher/masquer selon les critères
     for (int row = 0; row < table_email_history->rowCount(); ++row) {
         bool matchSearch = true;
         bool matchType = true;
-
+        
         // Vérifier la recherche textuelle
         if (!searchText.isEmpty()) {
             matchSearch = false;
-
+            
             // Chercher dans toutes les colonnes textuelles
             for (int col = 0; col < 5; ++col) { // Colonnes 0-4 (pas la colonne Actions)
                 QTableWidgetItem *item = table_email_history->item(row, col);
@@ -3224,7 +4204,7 @@ void MainWindow::filterEmailHistory()
                 }
             }
         }
-
+        
         // Vérifier le filtre de type
         if (selectedType != "Tous les types") {
             QTableWidgetItem *typeItem = table_email_history->item(row, 3); // Colonne Type
@@ -3234,11 +4214,11 @@ void MainWindow::filterEmailHistory()
                 matchType = rowType.contains(selectedType, Qt::CaseInsensitive);
             }
         }
-
+        
         // Afficher/masquer la ligne selon les critères
         table_email_history->setRowHidden(row, !(matchSearch && matchType));
     }
-
+    
     // Afficher le nombre de résultats
     int visibleCount = 0;
     for (int row = 0; row < table_email_history->rowCount(); ++row) {
@@ -3255,57 +4235,57 @@ void MainWindow::filterEmailHistory()
 void MainWindow::sortEmailHistory(int column)
 {
     if (!table_email_history || column == 5) return; // Pas de tri sur la colonne Actions
-
+    
     // Inverser l'ordre de tri si on clique sur la même colonne
     if (column == currentSortColumn) {
-        currentSortOrder = (currentSortOrder == Qt::AscendingOrder)
-        ? Qt::DescendingOrder
-        : Qt::AscendingOrder;
+        currentSortOrder = (currentSortOrder == Qt::AscendingOrder) 
+                          ? Qt::DescendingOrder 
+                          : Qt::AscendingOrder;
     } else {
         currentSortColumn = column;
         currentSortOrder = Qt::AscendingOrder;
     }
-
+    
     // Créer une liste temporaire avec les données et indices
     struct RowData {
         int originalIndex;
         QString sortKey;
         QDateTime dateTime;
     };
-
+    
     QList<RowData> rows;
     rows.reserve(emailHistory.size());
-
+    
     for (int i = 0; i < emailHistory.size(); ++i) {
         const EmailHistory &entry = emailHistory[i];
         RowData rowData;
         rowData.originalIndex = i;
         rowData.dateTime = entry.dateTime;
-
+        
         // Déterminer la clé de tri selon la colonne
         switch (column) {
-        case 0: // Date
-            rowData.sortKey = entry.dateTime.toString("yyyyMMddhhmmss");
-            break;
-        case 1: // Destinataire
-            rowData.sortKey = entry.to.toLower();
-            break;
-        case 2: // Sujet
-            rowData.sortKey = entry.subject.toLower();
-            break;
-        case 3: // Type
-            rowData.sortKey = entry.type.toLower();
-            break;
-        case 4: // Commande
-            rowData.sortKey = entry.orderID.toLower();
-            break;
-        default:
-            rowData.sortKey = "";
+            case 0: // Date
+                rowData.sortKey = entry.dateTime.toString("yyyyMMddhhmmss");
+                break;
+            case 1: // Destinataire
+                rowData.sortKey = entry.to.toLower();
+                break;
+            case 2: // Sujet
+                rowData.sortKey = entry.subject.toLower();
+                break;
+            case 3: // Type
+                rowData.sortKey = entry.type.toLower();
+                break;
+            case 4: // Commande
+                rowData.sortKey = entry.orderID.toLower();
+                break;
+            default:
+                rowData.sortKey = "";
         }
-
+        
         rows.append(rowData);
     }
-
+    
     // Trier les lignes
     if (currentSortOrder == Qt::AscendingOrder) {
         std::sort(rows.begin(), rows.end(), [](const RowData &a, const RowData &b) {
@@ -3316,42 +4296,42 @@ void MainWindow::sortEmailHistory(int column)
             return a.sortKey > b.sortKey;
         });
     }
-
+    
     // Réorganiser la table selon l'ordre trié
     table_email_history->setRowCount(0);
-
+    
     for (const RowData &rowData : rows) {
         int i = rowData.originalIndex;
         const EmailHistory &entry = emailHistory[i];
-
+        
         int row = table_email_history->rowCount();
         table_email_history->insertRow(row);
-
+        
         table_email_history->setItem(row, 0, new QTableWidgetItem(entry.dateTime.toString("dd/MM/yyyy hh:mm")));
         table_email_history->setItem(row, 1, new QTableWidgetItem(entry.to));
         table_email_history->setItem(row, 2, new QTableWidgetItem(entry.subject));
         table_email_history->setItem(row, 3, new QTableWidgetItem(entry.type));
         table_email_history->setItem(row, 4, new QTableWidgetItem(entry.orderID));
-
+        
         // Bouton pour renvoyer
         QPushButton *btnResend = new QPushButton("🔄 Renvoyer");
         btnResend->setStyleSheet("background-color: #28a745; color: white; padding: 5px 10px; border-radius: 3px;");
         btnResend->setProperty("historyIndex", i);
         connect(btnResend, &QPushButton::clicked, this, &MainWindow::resendEmailFromHistory);
-
+        
         table_email_history->setCellWidget(row, 5, btnResend);
     }
-
+    
     // Réappliquer les filtres après le tri
     filterEmailHistory();
-
+    
     // Afficher un indicateur de tri dans l'en-tête
     QString sortIndicator = (currentSortOrder == Qt::AscendingOrder) ? " ▲" : " ▼";
     QStringList headers = {"📅 Date", "📧 Destinataire", "📝 Sujet", "📂 Type", "🔖 Commande", "Actions"};
     headers[column] += sortIndicator;
     table_email_history->setHorizontalHeaderLabels(headers);
-
-    qDebug() << "Tri appliqué: colonne" << column
+    
+    qDebug() << "Tri appliqué: colonne" << column 
              << (currentSortOrder == Qt::AscendingOrder ? "Ascendant" : "Descendant");
 }
 
@@ -3360,11 +4340,11 @@ void MainWindow::sortEmailHistory(int column)
 void MainWindow::searchOrdersList()
 {
     QString searchText = ui->le_search->text().toLower();
-
+    
     // Parcourir toutes les lignes et afficher/masquer selon les critères
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         bool match = false;
-
+        
         if (searchText.isEmpty()) {
             match = true;
         } else {
@@ -3377,10 +4357,10 @@ void MainWindow::searchOrdersList()
                 }
             }
         }
-
+        
         ui->table_list->setRowHidden(row, !match);
     }
-
+    
     // Compter les résultats visibles
     int visibleCount = 0;
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
@@ -3388,36 +4368,41 @@ void MainWindow::searchOrdersList()
             visibleCount++;
         }
     }
-
-    qDebug() << "Recherche liste: " << visibleCount << "/" << ui->table_list->rowCount()
+    
+    qDebug() << "Recherche liste: " << visibleCount << "/" << ui->table_list->rowCount() 
              << "commandes affichées (recherche:" << searchText << ")";
 }
 
 void MainWindow::sortOrdersList()
 {
-    QString sortType = ui->cb_sort->currentText();
+    QString sortType = ui->cb_sort->currentText().trimmed();
+    const QString normalizedSortType = sortType.toLower();
 
     qDebug() << "Tri de la liste par:" << sortType;
 
     int column = 0;
     Qt::SortOrder order = Qt::AscendingOrder;
 
-    if (sortType == "Trier par Date") {
+    if (normalizedSortType.contains("id")) {
+        column = 0; // ID
+        order = Qt::AscendingOrder;
+    } else if (normalizedSortType.contains("date")) {
         column = 5; // Date Commande
         order = Qt::DescendingOrder; // Plus récent en premier
-    } else if (sortType == "Trier par Quantité") {
+    } else if (normalizedSortType.contains("quant")) {
         column = 2; // Quantité
         order = Qt::DescendingOrder;
-    } else if (sortType == "Trier par Prix (Croissant)") {
-        column = 7; // Prix
-        order = Qt::AscendingOrder;
-    } else if (sortType == "Trier par Prix (Decroissant)") {
+    } else if (normalizedSortType.contains("prix") &&
+               (normalizedSortType.contains("decro") || normalizedSortType.contains(QString::fromUtf8("décro")))) {
         column = 7; // Prix
         order = Qt::DescendingOrder;
-    } else if (sortType == "Trier par Type") {
+    } else if (normalizedSortType.contains("prix")) {
+        column = 7; // Prix
+        order = Qt::AscendingOrder;
+    } else if (normalizedSortType.contains("type")) {
         column = 1; // Type
         order = Qt::AscendingOrder;
-    } else if (sortType == "Trier par Statut") {
+    } else if (normalizedSortType.contains("statut")) {
         column = 9; // Statut
         order = Qt::AscendingOrder;
     }
@@ -3430,33 +4415,33 @@ void MainWindow::sortOrdersList()
 void MainWindow::exportListToPDF()
 {
     QString fileName = QFileDialog::getSaveFileName(this,
-                                                    "Exporter la liste en PDF",
-                                                    QString("commandes_liste_%1.pdf").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")),
-                                                    "PDF Files (*.pdf)");
-
+        "Exporter la liste en PDF",
+        QString("commandes_liste_%1.pdf").arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")),
+        "PDF Files (*.pdf)");
+    
     if (fileName.isEmpty()) return;
-
+    
     QPdfWriter pdfWriter(fileName);
     pdfWriter.setPageSize(QPageSize::A4);
     pdfWriter.setPageOrientation(QPageLayout::Landscape); // Paysage pour tableau large
     pdfWriter.setPageMargins(QMarginsF(15, 15, 15, 15));
-
+    
     QPainter painter(&pdfWriter);
-
+    
     // Titre
     QFont titleFont = painter.font();
     titleFont.setPointSize(18);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.drawText(100, 100, "📋 LISTE DES COMMANDES");
-
+    
     // Date d'export
     QFont normalFont = painter.font();
     normalFont.setPointSize(10);
     normalFont.setBold(false);
     painter.setFont(normalFont);
     painter.drawText(100, 200, QString("Date d'export: %1").arg(QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm")));
-
+    
     // Compter les commandes visibles
     int visibleRows = 0;
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
@@ -3465,71 +4450,71 @@ void MainWindow::exportListToPDF()
         }
     }
     painter.drawText(100, 300, QString("Nombre de commandes: %1").arg(visibleRows));
-
+    
     // Dessiner le tableau
     int yPos = 500;
     int xStart = 100;
     int rowHeight = 250;
-
+    
     // Colonnes réduites pour tenir sur la page (on exclut Ville et cinEmploye)
     QStringList headers = {"ID", "Type", "Qté", "Email", "Date Cmd", "Date Livr", "Prix", "Statut"};
     QList<int> columnIndices = {0, 1, 2, 3, 5, 6, 7, 9};
     QList<int> columnWidths = {400, 800, 400, 1200, 800, 800, 600, 700}; // Largeurs en unités PDF
-
+    
     // En-têtes
     QFont headerFont = painter.font();
     headerFont.setBold(true);
     headerFont.setPointSize(9);
     painter.setFont(headerFont);
-
+    
     painter.setPen(QPen(Qt::black, 2));
     painter.setBrush(QBrush(QColor(139, 69, 19))); // Marron
-
+    
     int xPos = xStart;
     for (int i = 0; i < headers.size(); ++i) {
         painter.fillRect(xPos, yPos, columnWidths[i], rowHeight, QBrush(QColor(139, 69, 19)));
         painter.setPen(Qt::white);
         painter.drawRect(xPos, yPos, columnWidths[i], rowHeight);
-        painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight),
-                         Qt::AlignVCenter | Qt::AlignLeft, headers[i]);
+        painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight), 
+                        Qt::AlignVCenter | Qt::AlignLeft, headers[i]);
         xPos += columnWidths[i];
         painter.setPen(QPen(Qt::black, 2));
     }
-
+    
     yPos += rowHeight;
-
+    
     // Données
     painter.setFont(normalFont);
     normalFont.setPointSize(8);
     painter.setFont(normalFont);
-
+    
     int rowCount = 0;
     const int maxRowsPerPage = 20;
-
+    
     for (int row = 0; row < ui->table_list->rowCount(); ++row) {
         if (ui->table_list->isRowHidden(row)) continue;
-
+        
         // Nouvelle page si nécessaire
         if (rowCount > 0 && rowCount % maxRowsPerPage == 0) {
             pdfWriter.newPage();
             yPos = 100;
         }
-
+        
         xPos = xStart;
-
+        
         // Alterner les couleurs de fond
         if (rowCount % 2 == 0) {
             painter.fillRect(xStart, yPos, 5700, rowHeight, QBrush(QColor(255, 248, 220))); // Beige clair
         }
-
+        
         for (int i = 0; i < columnIndices.size(); ++i) {
             int col = columnIndices[i];
             QTableWidgetItem *item = ui->table_list->item(row, col);
             QString text = item ? item->text() : "";
-
+            
             painter.setPen(Qt::black);
             painter.drawRect(xPos, yPos, columnWidths[i], rowHeight);
-
+            
             // Coloration spéciale pour le statut
             if (col == 9 && item) {
                 QString status = text;
@@ -3538,30 +4523,30 @@ void MainWindow::exportListToPDF()
                 else if (status == "Complétée") painter.setPen(QColor(0, 0, 255)); // Bleu
                 else if (status == "En attente") painter.setPen(QColor(255, 0, 0)); // Rouge
             }
-
+            
             painter.drawText(QRect(xPos + 20, yPos, columnWidths[i] - 40, rowHeight),
-                             Qt::AlignVCenter | Qt::AlignLeft, text);
-
+                           Qt::AlignVCenter | Qt::AlignLeft, text);
+            
             xPos += columnWidths[i];
             painter.setPen(Qt::black);
         }
-
+        
         yPos += rowHeight;
         rowCount++;
     }
-
+    
     painter.end();
-
+    
     QMessageBox::information(this, "✅ Export réussi",
-                             QString("La liste des commandes a été exportée en PDF:\n%1\n\n"
-                                     "Nombre de commandes exportées: %2").arg(fileName).arg(visibleRows));
-
+        QString("La liste des commandes a été exportée en PDF:\n%1\n\n"
+                "Nombre de commandes exportées: %2").arg(fileName).arg(visibleRows));
+    
     // Proposer d'ouvrir le fichier
-    if (QMessageBox::question(this, "Ouvrir le PDF?",
-                              "Voulez-vous ouvrir le fichier PDF maintenant?") == QMessageBox::Yes) {
+    if (QMessageBox::question(this, "Ouvrir le PDF?", 
+        "Voulez-vous ouvrir le fichier PDF maintenant?") == QMessageBox::Yes) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(fileName));
     }
-
+    
     qDebug() << "Export PDF terminé:" << fileName << "(" << visibleRows << "commandes)";
 }
 
@@ -3592,7 +4577,7 @@ void MainWindow::setupSupplierUI()
     supplierTabButtons.clear();
     supplierTabButtons << btnTabAdd << btnTabUpdate << btnTabDelete << btnTabList;
     applyBarStyle(supplierTabButtons, true);
-    for (QPushButton *b : std::as_const(supplierTabButtons)) tabLayout->addWidget(b);
+    for (auto *b : supplierTabButtons) tabLayout->addWidget(b);
     ui->verticalLayout_suppliers->addLayout(tabLayout);
 
     // Stacked pages
@@ -3668,6 +4653,26 @@ void MainWindow::setupSupplierUI()
     vDel->addLayout(hDel); vDel->addWidget(lblDelInfo);
     supplierStack->addWidget(pageDel);
 
+    // Contraintes de saisie fournisseurs
+    supNameInput->setMaxLength(80);
+    supTypeInput->setMaxLength(80);
+    supAddressInput->setMaxLength(160);
+    supPhoneInput->setMaxLength(20);
+    supEmailInput->setMaxLength(120);
+    nameUpd->setMaxLength(80);
+    typeUpd->setMaxLength(80);
+    addrUpd->setMaxLength(160);
+    phoneUpd->setMaxLength(20);
+    emailUpd->setMaxLength(120);
+
+    supIdInput->setValidator(new QIntValidator(1, 2147483647, pageUpd));
+    idDel->setValidator(new QIntValidator(1, 2147483647, pageDel));
+
+    supPhoneInput->setValidator(new QRegularExpressionValidator(phonePattern(), pageAdd));
+    phoneUpd->setValidator(new QRegularExpressionValidator(phonePattern(), pageUpd));
+    supEmailInput->setValidator(new QRegularExpressionValidator(emailPattern(), pageAdd));
+    emailUpd->setValidator(new QRegularExpressionValidator(emailPattern(), pageUpd));
+
     // --- List / Stats page ---
     QWidget *pageList = new QWidget(supplierStack);
     auto *vList = new QVBoxLayout(pageList);
@@ -3678,10 +4683,8 @@ void MainWindow::setupSupplierUI()
         card->setStyleSheet(QString("background:%1; border-radius:10px; padding:12px; color:white;").arg(color));
         auto *v = new QVBoxLayout(card);
         auto *titleLbl = new QLabel(title, card);
-        titleLbl->setObjectName(QString("supplierStatTitle_%1").arg(QString(title).replace(' ', '_')));
         titleLbl->setStyleSheet("font-weight:bold;");
         *valueLabel = new QLabel("0", card);
-        (*valueLabel)->setObjectName(QString("supplierStatValue_%1").arg(QString(title).replace(' ', '_')));
         (*valueLabel)->setStyleSheet("font-size:20px; font-weight:bold;");
         v->addWidget(titleLbl);
         v->addWidget(*valueLabel);
@@ -3722,6 +4725,7 @@ void MainWindow::setupSupplierUI()
     connect(btnLoadUpd, &QPushButton::clicked, this, [=](){
         QString id = supIdInput ? supIdInput->text().trimmed() : QString();
         if(id.isEmpty()){ QMessageBox::warning(this,"Champ manquant","Entrer un ID."); return; }
+        if(!isPositiveIntegerText(id)){ QMessageBox::warning(this,"ID invalide","L'ID fournisseur doit être un entier positif."); return; }
         Supplier *s = findSupplier(id);
         if(!s){ QMessageBox::information(this,"Introuvable","Aucun fournisseur trouvé."); return; }
         nameUpd->setText(s->nom); typeUpd->setText(s->type); addrUpd->setText(s->adresse);
@@ -3733,11 +4737,15 @@ void MainWindow::setupSupplierUI()
     connect(btnUpd, &QPushButton::clicked, this, [=](){
         QString id = supIdInput ? supIdInput->text().trimmed() : QString();
         if(id.isEmpty()){ QMessageBox::warning(this,"Champ manquant","Entrer l'ID chargé."); return; }
+        if(!isPositiveIntegerText(id)){ QMessageBox::warning(this,"ID invalide","L'ID fournisseur doit être un entier positif."); return; }
         Supplier s; s.id=id; s.nom=nameUpd->text().trimmed(); s.type=typeUpd->text().trimmed();
         s.adresse=addrUpd->text().trimmed(); s.telephone=phoneUpd->text().trimmed(); s.email=emailUpd->text().trimmed();
         s.delai=delayUpd->value(); s.prix=priceUpd->value(); s.statut=statusUpd->currentText();
-        if(s.nom.isEmpty()||s.type.isEmpty()||s.telephone.isEmpty()||s.email.isEmpty()){
-            QMessageBox::warning(this,"Champs requis","Remplir nom/type/tel/email."); return; }
+        if(s.nom.isEmpty()||s.type.isEmpty()||s.adresse.isEmpty()||s.telephone.isEmpty()||s.email.isEmpty()){
+            QMessageBox::warning(this,"Champs requis","Remplir nom/type/adresse/tel/email."); return; }
+        if(!isValidPersonName(s.nom)){ QMessageBox::warning(this,"Saisie invalide","Nom fournisseur invalide (lettres et espaces uniquement)."); return; }
+        if(!isValidPhone(s.telephone)){ QMessageBox::warning(this,"Saisie invalide","Téléphone fournisseur invalide."); return; }
+        if(!isValidEmail(s.email)){ QMessageBox::warning(this,"Saisie invalide","Email fournisseur invalide."); return; }
         if(updateSupplier(id,s)){ refreshSupplierTable(); QMessageBox::information(this,"Succès","Fournisseur mis à jour."); }
         else QMessageBox::warning(this,"Erreur","Mise à jour impossible.");
     });
@@ -3745,6 +4753,7 @@ void MainWindow::setupSupplierUI()
     connect(btnLoadDel, &QPushButton::clicked, this, [=](){
         QString id = idDel->text().trimmed();
         if(id.isEmpty()){ QMessageBox::warning(this,"Champ manquant","Entrer un ID."); return; }
+        if(!isPositiveIntegerText(id)){ QMessageBox::warning(this,"ID invalide","L'ID fournisseur doit être un entier positif."); return; }
         Supplier *s = findSupplier(id);
         if(!s){ lblDelInfo->setText("(Aucun fournisseur)"); QMessageBox::information(this,"Introuvable","Aucun fournisseur trouvé."); return; }
         lblDelInfo->setText(QString("%1 - %2 (%3)").arg(s->id, s->nom, s->type));
@@ -3754,6 +4763,7 @@ void MainWindow::setupSupplierUI()
     connect(btnDel, &QPushButton::clicked, this, [=](){
         QString id = idDel->text().trimmed();
         if(id.isEmpty()){ QMessageBox::warning(this,"Champ manquant","Entrer un ID."); return; }
+        if(!isPositiveIntegerText(id)){ QMessageBox::warning(this,"ID invalide","L'ID fournisseur doit être un entier positif."); return; }
         if(QMessageBox::question(this,"Confirmation","Supprimer ce fournisseur ?")!=QMessageBox::Yes) return;
         if(deleteSupplier(id)){ lblDelInfo->setText("(Aucun fournisseur)"); idDel->clear(); refreshSupplierTable(); }
         else QMessageBox::warning(this,"Erreur","Suppression impossible.");
@@ -3794,7 +4804,7 @@ void MainWindow::setupEmployeeUI()
     employeeTabButtons.clear();
     employeeTabButtons << btnTabAdd << btnTabEdit << btnTabDelete << btnTabList;
     applyBarStyle(employeeTabButtons, true);
-    for (QPushButton *b : std::as_const(employeeTabButtons)) tabLayout->addWidget(b);
+    for (auto *b : employeeTabButtons) tabLayout->addWidget(b);
     ui->verticalLayout_employees->addLayout(tabLayout);
 
     employeeStack = new QStackedWidget(ui->page_employees);
@@ -3814,110 +4824,10 @@ void MainWindow::setupEmployeeUI()
     empPosteAdd = new QComboBox(pageAdd); empPosteAdd->addItems({"Employé","Manager","Technicien","RH"});
     empSalaryAdd = new QDoubleSpinBox(pageAdd); empSalaryAdd->setRange(0,1000000); empSalaryAdd->setDecimals(2);
     empSexAdd = new QComboBox(pageAdd); empSexAdd->addItems({"Homme","Femme"});
-
-    // --- Sélection photo ---
-    auto *photoWidget = new QWidget(pageAdd);
-    auto *photoLayout = new QHBoxLayout(photoWidget);
-    photoLayout->setContentsMargins(0,0,0,0);
-    photoLayout->setSpacing(10);
-
-    auto *photoPreview = new QLabel(photoWidget);
-    photoPreview->setFixedSize(80, 80);
-    photoPreview->setAlignment(Qt::AlignCenter);
-    photoPreview->setStyleSheet(
-        "border:2px dashed #C68E65;border-radius:40px;"
-        "background:#f7f3ee;color:#8c7b70;font-size:10px;");
-    photoPreview->setText("Photo");
-
-    auto *btnPhoto = new QPushButton("📷  Choisir une photo", photoWidget);
-    btnPhoto->setFixedHeight(36);
-    btnPhoto->setStyleSheet(
-        "QPushButton{background:#f7f3ee;color:#7B3F00;border:1px solid #C68E65;"
-        "border-radius:6px;font-size:12px;padding:0 12px;}"
-        "QPushButton:hover{background:#ede5dc;}");
-    auto *btnClearPhoto = new QPushButton("✕", photoWidget);
-    btnClearPhoto->setFixedSize(36,36);
-    btnClearPhoto->setStyleSheet(
-        "QPushButton{background:#fff0f0;color:#c0392b;border:1px solid #e0c0c0;"
-        "border-radius:6px;font-size:14px;}"
-        "QPushButton:hover{background:#ffe0e0;}");
-    btnClearPhoto->setToolTip("Supprimer la photo");
-
-    photoLayout->addWidget(photoPreview);
-    photoLayout->addWidget(btnPhoto);
-    photoLayout->addWidget(btnClearPhoto);
-
-    // Bouton enregistrer visage Face ID
-    auto *btnFaceEnroll = new QPushButton("  🔍  Enregistrer visage Face ID", photoWidget);
-    btnFaceEnroll->setFixedHeight(36);
-    btnFaceEnroll->setStyleSheet(
-        "QPushButton{background:#f7f3ee;color:#7B3F00;border:1px solid #C68E65;"
-        "border-radius:6px;font-size:12px;padding:0 12px;}"
-        "QPushButton:hover{background:#ede5dc;}");
-    photoLayout->addWidget(btnFaceEnroll);
-    photoLayout->addStretch();
-
-    connect(btnFaceEnroll, &QPushButton::clicked, this, [=](){
-        // Demander confirmation mot de passe
-        bool ok = false;
-        QString pwd = QInputDialog::getText(this, "Confirmation",
-            "Mot de passe admin pour enregistrer le visage :",
-            QLineEdit::Password, "", &ok);
-        if (!ok || pwd != "admin123") {
-            QMessageBox::warning(this, "Accès refusé", "Mot de passe incorrect.");
-            return;
-        }
-        // Ouvrir le popup de capture
-        FaceScanPopup *popup = new FaceScanPopup("admin", "enroll", this);
-        if (popup->exec() == QDialog::Accepted) {
-            btnFaceEnroll->setText("  ✓  Visage enregistré");
-            btnFaceEnroll->setStyleSheet(
-                "QPushButton{background:#e8f5e9;color:#2ea043;border:1px solid #2ea043;"
-                "border-radius:6px;font-size:12px;padding:0 12px;}");
-        }
-        delete popup;
-    });
-
-    // Stocker le chemin de la photo sélectionnée
-    QString *selectedPhotoPath = new QString();
-
-    connect(btnPhoto, &QPushButton::clicked, this, [=](){
-        QString path = QFileDialog::getOpenFileName(
-            this, "Choisir une photo", "",
-            "Images (*.png *.jpg *.jpeg *.bmp)");
-        if (path.isEmpty()) return;
-        *selectedPhotoPath = path;
-        QPixmap pix(path);
-        if (!pix.isNull()) {
-            // Afficher en cercle
-            QPixmap rounded(80, 80);
-            rounded.fill(Qt::transparent);
-            QPainter painter(&rounded);
-            painter.setRenderHint(QPainter::Antialiasing);
-            QPainterPath clipPath;
-            clipPath.addEllipse(0, 0, 80, 80);
-            painter.setClipPath(clipPath);
-            painter.drawPixmap(0, 0, 80, 80,
-                pix.scaled(80, 80, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
-            photoPreview->setPixmap(rounded);
-            photoPreview->setStyleSheet("border:2px solid #C68E65;border-radius:40px;");
-        }
-    });
-
-    connect(btnClearPhoto, &QPushButton::clicked, this, [=](){
-        *selectedPhotoPath = "";
-        photoPreview->setPixmap(QPixmap());
-        photoPreview->setText("Photo");
-        photoPreview->setStyleSheet(
-            "border:2px dashed #C68E65;border-radius:40px;"
-            "background:#f7f3ee;color:#8c7b70;font-size:10px;");
-    });
-
     formAdd->addRow("CIN/ID *", empIdAdd);
     formAdd->addRow("Nom *", empNameAdd);
-    formAdd->addRow("Photo", photoWidget);
     formAdd->addRow("Adresse", empAddrAdd);
-    formAdd->addRow("Email", empEmailAdd);
+    formAdd->addRow("Email", empEmailAdd); // Champ non présent dans la table, conservé pour UI uniquement
     formAdd->addRow("Téléphone", empPhoneAdd);
     formAdd->addRow("Date embauche", empHireDateAdd);
     formAdd->addRow("Poste", empPosteAdd);
@@ -3956,206 +4866,45 @@ void MainWindow::setupEmployeeUI()
     hDel->addWidget(empDeleteId); hDel->addWidget(btnDel);
     employeeStack->addWidget(pageDel);
 
+    // Contraintes de saisie employés
+    empIdAdd->setMaxLength(12);
+    empSearchEdit->setMaxLength(12);
+    empDeleteId->setMaxLength(12);
+    empNameAdd->setMaxLength(80);
+    empEditName->setMaxLength(80);
+    empAddrAdd->setMaxLength(160);
+    empPhoneAdd->setMaxLength(20);
+    empEditPhone->setMaxLength(20);
+    empEmailAdd->setMaxLength(120);
+
+    empIdAdd->setValidator(new QIntValidator(1, 999999999, pageAdd));
+    empSearchEdit->setValidator(new QIntValidator(1, 999999999, pageEdit));
+    empDeleteId->setValidator(new QIntValidator(1, 999999999, pageDel));
+    empPhoneAdd->setValidator(new QRegularExpressionValidator(phonePattern(), pageAdd));
+    empEditPhone->setValidator(new QRegularExpressionValidator(phonePattern(), pageEdit));
+    empEmailAdd->setValidator(new QRegularExpressionValidator(emailPattern(), pageAdd));
+    empHireDateAdd->setMaximumDate(QDate::currentDate());
+
     // List page
     QWidget *pageList = new QWidget(employeeStack);
     auto *vList = new QVBoxLayout(pageList);
-    vList->setSpacing(8);
-
-    // --- Barre recherche / tri ---
-    auto *searchSortBar = new QHBoxLayout();
-    auto *empSearchBar = new QLineEdit(pageList);
-    empSearchBar->setPlaceholderText("🔍  Rechercher par nom, CIN, poste...");
-    empSearchBar->setFixedHeight(36);
-    empSearchBar->setStyleSheet(
-        "QLineEdit{background:#fff;border:1px solid #C68E65;border-radius:6px;"
-        "padding:0 10px;color:#3b2a20;font-size:13px;}"
-        "QLineEdit:focus{border:2px solid #8B4513;}");
-
-    auto *empSortCombo = new QComboBox(pageList);
-    empSortCombo->setFixedHeight(36);
-    empSortCombo->addItems({"Trier par...", "Nom ↑", "Nom ↓", "Salaire ↑", "Salaire ↓", "Poste ↑"});
-    empSortCombo->setStyleSheet(
-        "QComboBox{background:#fff;border:1px solid #C68E65;border-radius:6px;"
-        "padding:0 10px;color:#3b2a20;font-size:13px;min-width:140px;}"
-        "QComboBox QAbstractItemView{background:#fff;color:#3b2a20;border:1px solid #C68E65;}");
-
-    searchSortBar->addWidget(empSearchBar, 1);
-    searchSortBar->addWidget(empSortCombo);
-
-    // Bouton Export PDF
-    auto *btnEmpPdf = new QPushButton("📄  Export PDF", pageList);
-    btnEmpPdf->setFixedHeight(36);
-    btnEmpPdf->setStyleSheet(
-        "QPushButton{background:#8B4513;color:white;border:none;border-radius:6px;"
-        "font-size:12px;font-weight:600;padding:0 14px;}"
-        "QPushButton:hover{background:#a05a22;}");
-    searchSortBar->addWidget(btnEmpPdf);
-
-    vList->addLayout(searchSortBar);
-
     employeesTable = new QTableWidget(0, empHeaders.size(), pageList);
     employeesTable->setHorizontalHeaderLabels(empHeaders);
     employeesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     employeesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     employeesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     employeesTable->setAlternatingRowColors(true);
-    employeesTable->setShowGrid(true);
-    employeesTable->setWordWrap(false);
     employeesTable->setStyleSheet(
         "QHeaderView::section{background:#3b2a20;color:white;font-weight:bold;padding:6px;border:1px solid #C68E65;}"
-        "QTableWidget{gridline-color:#C68E65;alternate-background-color:#fdf7f2;background:#ffffff;color:#1a1a1a;selection-background-color:#f1c8a8;selection-color:#1a1a1a;}"
-        );
-    QPalette employeePalette = employeesTable->palette();
-    employeePalette.setColor(QPalette::Base, QColor(255, 255, 255));
-    employeePalette.setColor(QPalette::AlternateBase, QColor(253, 247, 242));
-    employeePalette.setColor(QPalette::Text, QColor(26, 26, 26));
-    employeePalette.setColor(QPalette::HighlightedText, QColor(26, 26, 26));
-    employeesTable->setPalette(employeePalette);
+        "QTableWidget{gridline-color:#C68E65;alternate-background-color:#fdf7f2;background:#fffafa;selection-background-color:#f1c8a8;}"
+    );
     vList->addWidget(employeesTable);
-
-    // Recherche en temps réel
-    connect(empSearchBar, &QLineEdit::textChanged, this, [=](const QString &text){
-        const QString filter = text.trimmed().toLower();
-        for (int row = 0; row < employeesTable->rowCount(); ++row) {
-            bool match = filter.isEmpty();
-            if (!match) {
-                for (int col = 0; col < employeesTable->columnCount(); ++col) {
-                    auto *item = employeesTable->item(row, col);
-                    if (item && item->text().toLower().contains(filter)) { match = true; break; }
-                }
-            }
-            employeesTable->setRowHidden(row, !match);
-        }
-    });
-
-    // Tri
-    connect(empSortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [=](int idx){
-        if (idx == 0) return;
-        int col = 1; Qt::SortOrder order = Qt::AscendingOrder;
-        if      (idx == 1) { col = 1; order = Qt::AscendingOrder; }
-        else if (idx == 2) { col = 1; order = Qt::DescendingOrder; }
-        else if (idx == 3) { col = 6; order = Qt::AscendingOrder; }
-        else if (idx == 4) { col = 6; order = Qt::DescendingOrder; }
-        else if (idx == 5) { col = 2; order = Qt::AscendingOrder; }
-        employeesTable->sortItems(col, order);
-    });
-
-    // Export PDF
-    connect(btnEmpPdf, &QPushButton::clicked, this, [=](){
-        QString fileName = QFileDialog::getSaveFileName(
-            this, "Exporter les employés en PDF", "employes.pdf", "PDF (*.pdf)");
-        if (fileName.isEmpty()) return;
-
-        QPdfWriter writer(fileName);
-        writer.setPageSize(QPageSize(QPageSize::A4));
-        writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
-
-        QPainter painter(&writer);
-        painter.setRenderHint(QPainter::Antialiasing);
-
-        const int W = writer.width();
-        int y = 0;
-
-        // Titre
-        painter.setFont(QFont("Arial", 16, QFont::Bold));
-        painter.setPen(QColor(59, 42, 32));
-        painter.drawText(QRect(0, y, W, 120), Qt::AlignCenter, "Liste des Employés");
-        y += 140;
-
-        // Date
-        painter.setFont(QFont("Arial", 8));
-        painter.setPen(QColor(140, 123, 112));
-        painter.drawText(QRect(0, y, W, 60), Qt::AlignRight,
-            "Généré le " + QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm"));
-        y += 80;
-
-        // En-têtes du tableau
-        const QStringList headers = {"CIN/ID","Nom","Poste","Adresse","Téléphone","Date Emb.","Salaire","Statut","Sexe"};
-        const int rowH = 80;
-        const int colW = W / headers.size();
-
-        painter.setFont(QFont("Arial", 8, QFont::Bold));
-        painter.fillRect(QRect(0, y, W, rowH), QColor(59, 42, 32));
-        painter.setPen(Qt::white);
-        for (int c = 0; c < headers.size(); ++c)
-            painter.drawText(QRect(c*colW+4, y+4, colW-8, rowH-8),
-                             Qt::AlignVCenter | Qt::AlignLeft, headers[c]);
-        y += rowH;
-
-        // Lignes
-        painter.setFont(QFont("Arial", 7));
-        for (int row = 0; row < employeesTable->rowCount(); ++row) {
-            if (employeesTable->isRowHidden(row)) continue;
-            QColor bg = (row % 2 == 0) ? QColor(255,255,255) : QColor(253,247,242);
-            painter.fillRect(QRect(0, y, W, rowH), bg);
-            painter.setPen(QColor(59, 42, 32));
-            for (int c = 0; c < headers.size(); ++c) {
-                auto *item = employeesTable->item(row, c);
-                QString txt = item ? item->text() : "";
-                painter.drawText(QRect(c*colW+4, y+4, colW-8, rowH-8),
-                                 Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, txt);
-            }
-            // Ligne séparatrice
-            painter.setPen(QPen(QColor(198,142,101), 1));
-            painter.drawLine(0, y+rowH, W, y+rowH);
-            y += rowH;
-
-            // Nouvelle page si nécessaire
-            if (y + rowH > writer.height() - 100) {
-                writer.newPage();
-                y = 0;
-            }
-        }
-
-        // Total
-        painter.setFont(QFont("Arial", 8, QFont::Bold));
-        painter.setPen(QColor(59, 42, 32));
-        painter.drawText(QRect(0, y+20, W, 60), Qt::AlignRight,
-            QString("Total : %1 employé(s)").arg(employeesTable->rowCount()));
-
-        painter.end();
-        QMessageBox::information(this, "Export PDF", "PDF exporté avec succès :\n" + fileName);
-    });
-
-    // --- Statistiques style commandes ---
-    auto makeStatCard = [&](const QString &icon, const QString &title, QLabel *&valLabel, const QString &color, QWidget *parent) -> QFrame* {
-        auto *card = new QFrame(parent);
-        card->setStyleSheet(QString(
-            "QFrame{background:%1;border-radius:10px;padding:4px;}"
-            "QLabel{border:none;background:transparent;}").arg(color));
-        card->setMinimumHeight(80);
-        auto *lay = new QVBoxLayout(card);
-        lay->setContentsMargins(12,8,12,8);
-        lay->setSpacing(2);
-        auto *top = new QLabel(icon + "  " + title, card);
-        top->setObjectName(QString("employeeStatTitle_%1").arg(QString(title).replace(' ', '_')));
-        top->setStyleSheet("font-size:11px;color:#ffffff;font-weight:600;opacity:0.9;");
-        valLabel = new QLabel("—", card);
-        valLabel->setObjectName(QString("employeeStatValue_%1").arg(QString(title).replace(' ', '_')));
-        valLabel->setStyleSheet("font-size:22px;font-weight:bold;color:#ffffff;");
-        valLabel->setAlignment(Qt::AlignLeft);
-        lay->addWidget(top);
-        lay->addWidget(valLabel);
-        return card;
-    };
-
-    auto *statsRow1 = new QHBoxLayout();
-    statsRow1->setSpacing(10);
-    statsRow1->addWidget(makeStatCard("👥", "Total employés",  empStatsTotal,      "#5D4037", pageList));
-    statsRow1->addWidget(makeStatCard("👨", "Hommes",          empStatsHommes,     "#6D4C41", pageList));
-    statsRow1->addWidget(makeStatCard("👩", "Femmes",          empStatsFemmes,     "#8D6E63", pageList));
-    statsRow1->addWidget(makeStatCard("💰", "Salaire moyen",   empStatsAvgSalary,  "#4E342E", pageList));
-    statsRow1->addWidget(makeStatCard("📉", "Salaire min",     empStatsSalMin,     "#795548", pageList));
-    statsRow1->addWidget(makeStatCard("📈", "Salaire max",     empStatsSalMax,     "#3E2723", pageList));
-    vList->addLayout(statsRow1);
-
-    empStatsPoste = new QLabel("📊  Répartition par poste : —", pageList);
-    empStatsPoste->setStyleSheet(
-        "background:#fff8f4;border:1px solid #C68E65;border-radius:8px;"
-        "padding:10px 16px;color:#3b2a20;font-size:12px;font-weight:500;");
-    empStatsPoste->setWordWrap(true);
-    vList->addWidget(empStatsPoste);
-
+    auto *statsLayout = new QHBoxLayout();
+    empStatsTotal = new QLabel("0", pageList);
+    empStatsAvgSalary = new QLabel("0", pageList);
+    statsLayout->addWidget(new QLabel("Total:")); statsLayout->addWidget(empStatsTotal);
+    statsLayout->addWidget(new QLabel("Salaire moyen:")); statsLayout->addWidget(empStatsAvgSalary);
+    vList->addLayout(statsLayout);
     employeeStack->addWidget(pageList);
 
     // Tabs behavior
@@ -4163,215 +4912,201 @@ void MainWindow::setupEmployeeUI()
     connect(btnTabAdd,&QPushButton::clicked,this,[=](){ setTab(0); });
     connect(btnTabEdit,&QPushButton::clicked,this,[=](){ setTab(1); });
     connect(btnTabDelete,&QPushButton::clicked,this,[=](){ setTab(2); });
+    connect(btnTabList,&QPushButton::clicked,this,[=](){ setTab(3); updateStatistics(); });
     setTab(0);
 
     // Actions
-    auto refreshEmpTable = [this](){
+    auto refreshEmpTable = [=](){
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) {
             Connection::instance()->createConnect();
             db = Connection::instance()->database();
         }
-        if (!employeesTable) return;
-
         employeesTable->setRowCount(0);
-        if (employeeModel) employeeModel->removeRows(0, employeeModel->rowCount());
-
-        const QString employeeTableName = detectEmployeeTableName(db);
-        qDebug() << "refreshEmpTable: employeeTableName=" << employeeTableName;
-        if (employeeTableName.isEmpty()) {
-            QMessageBox::critical(this, "Erreur employe",
-                                  "Impossible de detecter la table des employes dans Oracle.");
-            return;
-        }
-
-        const EmpColumns cols = detectEmpColumns(db, employeeTableName);
-        qDebug() << "refreshEmpTable: detected columns:" << cols.id << cols.nom << cols.poste << cols.adresse
-                 << cols.telephone << cols.dateEmbauche << cols.salaire << cols.statut << cols.sexe;
-        if (!cols.valid) {
-            QMessageBox::critical(this, "Erreur employe",
-                                  QString("Impossible de détecter les colonnes de la table '%1'.\nColonnes disponibles: %2")
-                                  .arg(employeeTableName, getTableColumns(db, employeeTableName).join(", ")));
-            return;
-        }
-
-        // Build SELECT with actual columns, using COALESCE for NULL-able columns
-        QStringList selCols;
-        selCols << (cols.id.isEmpty() ? "NULL" : cols.id);
-        selCols << (cols.nom.isEmpty() ? "NULL" : cols.nom);
-        selCols << (cols.poste.isEmpty() ? "NULL" : cols.poste);
-        selCols << (cols.adresse.isEmpty() ? "NULL" : cols.adresse);
-        selCols << (cols.telephone.isEmpty() ? "NULL" : cols.telephone);
-        selCols << (cols.dateEmbauche.isEmpty() ? "NULL" : cols.dateEmbauche);
-        selCols << (cols.salaire.isEmpty() ? "0" : cols.salaire);
-        selCols << (cols.statut.isEmpty() ? "NULL" : cols.statut);
-        selCols << (cols.sexe.isEmpty() ? "NULL" : cols.sexe);
-
-        const QString sql = QString("SELECT %1 FROM %2 ORDER BY %3")
-                                .arg(selCols.join(", "), employeeTableName, cols.id.isEmpty() ? "ROWNUM" : cols.id);
+        employeeModel->removeRows(0, employeeModel->rowCount());
 
         QSqlQuery q(db);
-        q.setForwardOnly(true);
-        if (!q.exec(sql)) {
-            qDebug() << "refreshEmpTable error:" << q.lastError().text() << "SQL:" << sql;
-            QMessageBox::critical(this, "Erreur employe",
-                                  QString("Erreur lors du chargement des employés : %1\nSQL : %2")
-                                  .arg(q.lastError().text(), sql));
+        q.prepare("SELECT CIN, NOM, POSTE, ADRESSE, TELEPHONE, DATE_EMBAUCHE, SALAIRE, STATUT, SEXE FROM EMPLOYE ORDER BY CIN");
+        if (!q.exec()) {
+            qDebug() << "refreshEmpTable error:" << q.lastError();
             return;
         }
-
-        const QStringList empHeaders = {"CIN/ID","Nom","Poste","Adresse","Téléphone","Date Embauche","Salaire","Statut","Sexe"};
-        double sum = 0.0, salMin = 0.0, salMax = 0.0;
-        int total = 0, hommes = 0, femmes = 0;
-        QMap<QString, int> posteCounts;
-        bool firstSal = true;
-
+        const int colCount = q.record().count();
+        if (colCount < empHeaders.size()) {
+            qDebug() << "refreshEmpTable: colonne manquante" << colCount << "attendu" << empHeaders.size();
+        }
+        double sum = 0.0; int total = 0;
         while (q.next()) {
-            int row = employeesTable->rowCount();
-            employeesTable->insertRow(row);
-            if (employeeModel) employeeModel->insertRow(employeeModel->rowCount());
-
-            // Safe column access: use index i to track what we're reading
-            int i = 0;
-            for (int c = 0; c < 9 && i < q.record().count(); ++c, ++i) {
-                const QVariant raw = q.value(i);
-                QString val;
-                if (!raw.isNull() && raw.isValid()) {
-                    if (raw.typeId() == QMetaType::QDate)
-                        val = raw.toDate().toString("dd/MM/yyyy");
-                    else if (raw.typeId() == QMetaType::QDateTime)
-                        val = raw.toDateTime().date().toString("dd/MM/yyyy");
-                    else if (raw.typeId() == QMetaType::Double || raw.typeId() == QMetaType::Float)
-                        val = QString::number(raw.toDouble(), 'f', 2);
-                    else
-                        val = raw.toString();
-                }
-                auto *item = new QTableWidgetItem(val);
-                item->setTextAlignment(Qt::AlignCenter);
-                item->setForeground(QColor(26, 26, 26));
-                item->setBackground((row % 2 == 0) ? QColor(255, 255, 255) : QColor(253, 247, 242));
-                employeesTable->setItem(row, c, item);
-                if (employeeModel) {
-                    int r = employeeModel->rowCount() - 1;
-                    employeeModel->setData(employeeModel->index(r, c), val);
+            int r = employeeModel->rowCount();
+            employeeModel->insertRow(r);
+            for(int c=0;c<empHeaders.size();++c){
+                if (c < colCount) {
+                    employeeModel->setData(employeeModel->index(r,c), q.value(c).toString());
                 }
             }
-
-            // Statistics - use safe index access
-            if (q.record().count() > 6) {
-                double sal = q.value(6).toDouble();
-                sum += sal;
-                if (firstSal) { salMin = salMax = sal; firstSal = false; }
-                else { salMin = qMin(salMin, sal); salMax = qMax(salMax, sal); }
+            int row = employeesTable->rowCount(); employeesTable->insertRow(row);
+            for(int c=0;c<empHeaders.size();++c){
+                if (c < colCount) {
+                    employeesTable->setItem(row,c,new QTableWidgetItem(q.value(c).toString()));
+                }
             }
-            if (q.record().count() > 2) {
-                QString poste = q.value(2).toString().trimmed();
-                if (!poste.isEmpty()) posteCounts[poste]++;
-            }
-            if (q.record().count() > 8) {
-                QString sexe = q.value(8).toString().trimmed().toLower();
-                if (sexe == "homme" || sexe == "m") hommes++;
-                else if (sexe == "femme" || sexe == "f") femmes++;
-            }
+            sum += (colCount > 6 ? q.value(6).toDouble() : 0.0);
             ++total;
         }
-
-        if(empStatsTotal)    empStatsTotal->setText(QString::number(total));
-        if(empStatsAvgSalary)empStatsAvgSalary->setText(QString::number(total?sum/total:0.0,'f',0)+" DT");
-        if(empStatsHommes)   empStatsHommes->setText(QString::number(hommes));
-        if(empStatsFemmes)   empStatsFemmes->setText(QString::number(femmes));
-        if(empStatsSalMin)   empStatsSalMin->setText(firstSal ? "—" : QString::number(salMin,'f',0)+" DT");
-        if(empStatsSalMax)   empStatsSalMax->setText(firstSal ? "—" : QString::number(salMax,'f',0)+" DT");
-        if(empStatsPoste) {
-            QStringList parts;
-            for(auto it=posteCounts.begin();it!=posteCounts.end();++it)
-                parts << QString("%1: %2").arg(it.key()).arg(it.value());
-            empStatsPoste->setText("📊  Postes — " + (parts.isEmpty() ? "—" : parts.join("  |  ")));
-        }
-        employeesTable->viewport()->update();
+        if(empStatsTotal) empStatsTotal->setText(QString::number(total));
+        if(empStatsAvgSalary) empStatsAvgSalary->setText(QString::number(total?sum/total:0.0,'f',2));
     };
-    connect(btnTabList,&QPushButton::clicked,this,[=](){ setTab(3); refreshEmpTable(); });
 
-    connect(btnAddEmp,&QPushButton::clicked,this,[=](){
-        QString id   = empIdAdd->text().trimmed();
+    connect(btnAddEmp, &QPushButton::clicked, this, [=]() {
+        QString id = empIdAdd->text().trimmed();
         QString name = empNameAdd->text().trimmed();
-        QString addr = empAddrAdd->text().trimmed();
-        QString phone= empPhoneAdd->text().trimmed();
-        double salary= empSalaryAdd->value();
-        QDate hireDate = empHireDateAdd->date();
+        if (id.isEmpty() || name.isEmpty()) {
+            QMessageBox::warning(this, "Champs requis", "CIN et Nom sont obligatoires.");
+            return;
+        }
+        if (!isPositiveIntegerText(id)) {
+            QMessageBox::warning(this, "Saisie invalide", "Le CIN/ID doit être un nombre entier positif.");
+            return;
+        }
+        if (!isValidPersonName(name)) {
+            QMessageBox::warning(this, "Saisie invalide", "Le nom employé est invalide.");
+            return;
+        }
 
-        // --- Validations ---
-        // CIN obligatoire et numérique (8 chiffres)
-        if (id.isEmpty()) {
-            QMessageBox::warning(this,"Saisie invalide","Le CIN/ID est obligatoire."); empIdAdd->setFocus(); return;
+        // Capturer toutes les valeurs UI sur le thread principal (évite les accès QWidget depuis le worker).
+        const QString poste = empPosteAdd->currentText();
+        const QString adresse = empAddrAdd->text().trimmed();
+        const QString emailUi = empEmailAdd->text().trimmed();
+        const QString tel = empPhoneAdd->text().trimmed();
+        const QDate dateEmb = empHireDateAdd->date();
+        const double salaire = empSalaryAdd->value();
+        const QString sexe = empSexAdd->currentText();
+
+        if (!emailUi.isEmpty() && !isValidEmail(emailUi)) {
+            QMessageBox::warning(this, "Saisie invalide", "L'email employé est invalide.");
+            return;
         }
-        QRegularExpression cinRx("^\\d{1,20}$");
-        if (!cinRx.match(id).hasMatch()) {
-            QMessageBox::warning(this,"Saisie invalide","Le CIN/ID doit contenir uniquement des chiffres."); empIdAdd->setFocus(); return;
+        if (!tel.isEmpty() && !isValidPhone(tel)) {
+            QMessageBox::warning(this, "Saisie invalide", "Le téléphone employé est invalide.");
+            return;
         }
-        // Nom obligatoire, lettres et espaces uniquement
-        if (name.isEmpty()) {
-            QMessageBox::warning(this,"Saisie invalide","Le Nom est obligatoire."); empNameAdd->setFocus(); return;
+        if (!dateEmb.isValid() || dateEmb > QDate::currentDate()) {
+            QMessageBox::warning(this, "Saisie invalide", "La date d'embauche ne peut pas être dans le futur.");
+            return;
         }
-        QRegularExpression nameRx("^[\\p{L} '\\-]{2,50}$");
-        if (!nameRx.match(name).hasMatch()) {
-            QMessageBox::warning(this,"Saisie invalide","Le Nom ne doit contenir que des lettres (2-50 caractères)."); empNameAdd->setFocus(); return;
+        if (salaire <= 0.0) {
+            QMessageBox::warning(this, "Saisie invalide", "Le salaire doit être supérieur à 0.");
+            return;
         }
-        // Téléphone : chiffres uniquement si renseigné
-        if (!phone.isEmpty()) {
-            QRegularExpression phoneRx("^[0-9+\\s\\-]{6,20}$");
-            if (!phoneRx.match(phone).hasMatch()) {
-                QMessageBox::warning(this,"Saisie invalide","Le téléphone doit contenir uniquement des chiffres (6-20 caractères)."); empPhoneAdd->setFocus(); return;
+
+        QSqlDatabase dbBase = Connection::instance()->database();
+        if (!dbBase.isOpen()) {
+            Connection::instance()->createConnect();
+            dbBase = Connection::instance()->database();
+        }
+        if (!dbBase.isValid()) {
+            QMessageBox::critical(this, "Base de données", "Connexion indisponible");
+            return;
+        }
+
+        const QString driverName = dbBase.driverName();
+        const QString hostName = dbBase.hostName();
+        const QString databaseName = dbBase.databaseName();
+        const QString userName = dbBase.userName();
+        const QString password = dbBase.password();
+        const int port = dbBase.port();
+        const QString connectOptions = dbBase.connectOptions();
+
+        btnAddEmp->setEnabled(false);
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        auto futureAddEmp = QtConcurrent::run([=]() {
+            const QString connName = QString("emp_async_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+            QString title;
+            QString message;
+            bool isWarning = false;
+            bool success = false;
+
+            QSqlDatabase db = QSqlDatabase::addDatabase(driverName, connName);
+            db.setHostName(hostName);
+            db.setDatabaseName(databaseName);
+            db.setUserName(userName);
+            db.setPassword(password);
+            if (port > 0) {
+                db.setPort(port);
             }
-        }
-        // Salaire non négatif
-        if (salary < 0) {
-            QMessageBox::warning(this,"Saisie invalide","Le salaire ne peut pas être négatif."); empSalaryAdd->setFocus(); return;
-        }
-        // Date d'embauche pas dans le futur
-        if (hireDate > QDate::currentDate()) {
-            QMessageBox::warning(this,"Saisie invalide","La date d'embauche ne peut pas être dans le futur."); empHireDateAdd->setFocus(); return;
-        }
+            db.setConnectOptions(connectOptions);
 
-        QSqlDatabase db = Connection::instance()->database();
-        if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
-        if (!db.isOpen()) { QMessageBox::critical(this,"Base de données","Connexion indisponible"); return; }
+            do {
+                if (!db.open()) {
+                    title = "Base de données";
+                    const QString errOpen = db.lastError().text();
+                    message = errOpen.isEmpty() ? "Impossible d'ouvrir la connexion." : errOpen;
+                    break;
+                }
 
-        const QString tbl = detectEmployeeTableName(db);
-        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
-        const EmpColumns cols = detectEmpColumns(db, tbl);
-        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
+                {
+                    QSqlQuery qCheck(db);
+                    qCheck.prepare("SELECT 1 FROM EMPLOYE WHERE CIN=:id");
+                    qCheck.bindValue(":id", id);
+                    if (qCheck.exec() && qCheck.next()) {
+                        title = "Doublon";
+                        message = "ID existe déjà en base.";
+                        isWarning = true;
+                        break;
+                    }
+                    if (qCheck.lastError().isValid()) {
+                        title = "Erreur";
+                        message = qCheck.lastError().text();
+                        break;
+                    }
 
-        QSqlQuery qCheck(db);
-        qCheck.prepare(QString("SELECT 1 FROM %1 WHERE %2=:id").arg(tbl, cols.id));
-        qCheck.bindValue(":id", id);
-        if (qCheck.exec() && qCheck.next()) { QMessageBox::warning(this,"Doublon","Un employé avec ce CIN existe déjà."); return; }
+                    QSqlQuery q(db);
+                    q.prepare("INSERT INTO EMPLOYE (CIN, NOM, POSTE, ADRESSE, TELEPHONE, DATE_EMBAUCHE, SALAIRE, STATUT, SEXE) "
+                              "VALUES (:id,:nom,:poste,:adresse,:tel,:date_emb,:salaire,:statut,:sexe)");
+                    q.bindValue(":id", id);
+                    q.bindValue(":nom", name);
+                    q.bindValue(":poste", poste);
+                    q.bindValue(":adresse", adresse);
+                    q.bindValue(":tel", tel);
+                    q.bindValue(":date_emb", dateEmb);
+                    q.bindValue(":salaire", salaire);
+                    q.bindValue(":statut", QStringLiteral("Actif"));
+                    q.bindValue(":sexe", sexe);
+                    if (!q.exec()) {
+                        title = "Erreur insertion";
+                        message = q.lastError().text();
+                        break;
+                    }
 
-        QStringList insCols = {cols.id, cols.nom};
-        QStringList insVals = {":id", ":nom"};
-        if (!cols.poste.isEmpty())        { insCols << cols.poste;        insVals << ":poste"; }
-        if (!cols.adresse.isEmpty())      { insCols << cols.adresse;      insVals << ":adresse"; }
-        if (!cols.telephone.isEmpty())    { insCols << cols.telephone;    insVals << ":tel"; }
-        if (!cols.dateEmbauche.isEmpty()) { insCols << cols.dateEmbauche; insVals << ":date_emb"; }
-        if (!cols.salaire.isEmpty())      { insCols << cols.salaire;      insVals << ":salaire"; }
-        if (!cols.statut.isEmpty())       { insCols << cols.statut;       insVals << ":statut"; }
-        if (!cols.sexe.isEmpty())         { insCols << cols.sexe;         insVals << ":sexe"; }
+                    QSqlQuery commit(db);
+                    commit.exec("COMMIT");
+                }
 
-        QSqlQuery q(db);
-        q.prepare(QString("INSERT INTO %1 (%2) VALUES (%3)").arg(tbl, insCols.join(","), insVals.join(",")));
-        q.bindValue(":id", id);
-        q.bindValue(":nom", name);
-        if (!cols.poste.isEmpty())        q.bindValue(":poste",    empPosteAdd->currentText());
-        if (!cols.adresse.isEmpty())      q.bindValue(":adresse",  addr);
-        if (!cols.telephone.isEmpty())    q.bindValue(":tel",      phone);
-        if (!cols.dateEmbauche.isEmpty()) q.bindValue(":date_emb", hireDate);
-        if (!cols.salaire.isEmpty())      q.bindValue(":salaire",  salary);
-        if (!cols.statut.isEmpty())       q.bindValue(":statut",   QStringLiteral("Actif"));
-        if (!cols.sexe.isEmpty())         q.bindValue(":sexe",     empSexAdd->currentText());
-        if (!q.exec()) { QMessageBox::critical(this,"Erreur insertion", q.lastError().text()); return; }
-        QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable(); setTab(3);
-        QMessageBox::information(this,"Succès","Employé ajouté.");
+                success = true;
+            } while (false);
+
+            if (db.isValid()) {
+                db.close();
+                db = QSqlDatabase();
+            }
+            QSqlDatabase::removeDatabase(connName);
+
+            QMetaObject::invokeMethod(qApp, [=]() {
+                QApplication::restoreOverrideCursor();
+                btnAddEmp->setEnabled(true);
+                if (success) {
+                    refreshEmpTable();
+                    QMessageBox::information(this, "Succès", "Employé ajouté avec succès.");
+                    return;
+                }
+                if (isWarning) {
+                    QMessageBox::warning(nullptr, title, message);
+                } else {
+                    QMessageBox::critical(nullptr, title, message);
+                }
+            }, Qt::QueuedConnection);
+        });
+        Q_UNUSED(futureAddEmp);
     });
     connect(btnResetEmp,&QPushButton::clicked,this,[=](){
         empIdAdd->clear(); empNameAdd->clear(); empAddrAdd->clear(); empEmailAdd->clear(); empPhoneAdd->clear();
@@ -4380,20 +5115,12 @@ void MainWindow::setupEmployeeUI()
 
     connect(btnSearchEdit,&QPushButton::clicked,this,[=](){
         QString id=empSearchEdit->text().trimmed();
+        if (id.isEmpty()) { QMessageBox::warning(this,"ID manquant","Entrer un CIN à rechercher."); return; }
+        if (!isPositiveIntegerText(id)) { QMessageBox::warning(this,"ID invalide","Le CIN doit être un entier positif."); return; }
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
-        const QString tbl = detectEmployeeTableName(db);
-        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
-        const EmpColumns cols = detectEmpColumns(db, tbl);
-        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
-
-        QStringList selCols;
-        selCols << selectExpr(cols.nom, "EMP_NAME")
-                << selectExpr(cols.telephone, "EMP_PHONE")
-                << selectExpr(cols.salaire, "EMP_SALARY", "0");
-
         QSqlQuery q(db);
-        q.prepare(QString("SELECT %1 FROM %2 WHERE %3=:id").arg(selCols.join(", "), tbl, cols.id));
+        q.prepare("SELECT NOM, TELEPHONE, SALAIRE FROM EMPLOYE WHERE CIN=:id");
         q.bindValue(":id", id);
         if (q.exec() && q.next()) {
             empEditName->setText(q.value(0).toString());
@@ -4404,105 +5131,40 @@ void MainWindow::setupEmployeeUI()
         QMessageBox::warning(this,"Introuvable","Employé non trouvé.");
     });
     connect(btnApplyEdit,&QPushButton::clicked,this,[=](){
-        QString id   = empSearchEdit->text().trimmed();
-        QString name = empEditName->text().trimmed();
-        QString phone= empEditPhone->text().trimmed();
-        double salary= empEditSalary->value();
-
-        // Validations
-        if (id.isEmpty()) {
-            QMessageBox::warning(this,"Saisie invalide","Veuillez d'abord charger un employé."); return;
-        }
-        if (name.isEmpty()) {
-            QMessageBox::warning(this,"Saisie invalide","Le Nom est obligatoire."); empEditName->setFocus(); return;
-        }
-        QRegularExpression nameRx("^[\\p{L} '\\-]{2,50}$");
-        if (!nameRx.match(name).hasMatch()) {
-            QMessageBox::warning(this,"Saisie invalide","Le Nom ne doit contenir que des lettres (2-50 caractères)."); empEditName->setFocus(); return;
-        }
-        if (!phone.isEmpty()) {
-            QRegularExpression phoneRx("^[0-9+\\s\\-]{6,20}$");
-            if (!phoneRx.match(phone).hasMatch()) {
-                QMessageBox::warning(this,"Saisie invalide","Le téléphone doit contenir uniquement des chiffres."); empEditPhone->setFocus(); return;
-            }
-        }
-        if (salary < 0) {
-            QMessageBox::warning(this,"Saisie invalide","Le salaire ne peut pas être négatif."); empEditSalary->setFocus(); return;
-        }
-
+        QString id=empSearchEdit->text().trimmed();
+        const QString updatedName = empEditName->text().trimmed();
+        const QString updatedPhone = empEditPhone->text().trimmed();
+        const double updatedSalary = empEditSalary->value();
+        if (!isPositiveIntegerText(id)) { QMessageBox::warning(this,"ID invalide","Le CIN doit être un entier positif."); return; }
+        if (!isValidPersonName(updatedName)) { QMessageBox::warning(this,"Saisie invalide","Le nom employé est invalide."); return; }
+        if (!updatedPhone.isEmpty() && !isValidPhone(updatedPhone)) { QMessageBox::warning(this,"Saisie invalide","Le téléphone employé est invalide."); return; }
+        if (updatedSalary <= 0.0) { QMessageBox::warning(this,"Saisie invalide","Le salaire doit être supérieur à 0."); return; }
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
-        const QString tbl = detectEmployeeTableName(db);
-        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
-        const EmpColumns cols = detectEmpColumns(db, tbl);
-        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
-
-        QStringList setParts;
-        setParts << cols.nom + "=:nom";
-        if (!cols.telephone.isEmpty()) setParts << cols.telephone + "=:tel";
-        if (!cols.salaire.isEmpty())   setParts << cols.salaire   + "=:sal";
-
         QSqlQuery q(db);
-        q.prepare(QString("UPDATE %1 SET %2 WHERE %3=:id").arg(tbl, setParts.join(","), cols.id));
-        q.bindValue(":nom", name);
-        if (!cols.telephone.isEmpty()) q.bindValue(":tel", phone);
-        if (!cols.salaire.isEmpty())   q.bindValue(":sal", salary);
+        q.prepare("UPDATE EMPLOYE SET NOM=:nom, TELEPHONE=:tel, SALAIRE=:sal WHERE CIN=:id");
+        q.bindValue(":nom", updatedName);
+        q.bindValue(":tel", updatedPhone);
+        q.bindValue(":sal", updatedSalary);
         q.bindValue(":id", id);
         if (!q.exec()) { QMessageBox::critical(this,"Erreur", q.lastError().text()); return; }
         QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable(); setTab(3);
-        QMessageBox::information(this,"Succès","Employé mis à jour.");
+        refreshEmpTable(); QMessageBox::information(this,"Succès","Employé mis à jour.");
     });
 
     connect(btnDel,&QPushButton::clicked,this,[=](){
         QString id=empDeleteId->text().trimmed();
         if (id.isEmpty()) { QMessageBox::warning(this,"ID manquant","Entrer un CIN."); return; }
+        if (!isPositiveIntegerText(id)) { QMessageBox::warning(this,"ID invalide","Le CIN doit être un entier positif."); return; }
+        if (QMessageBox::question(this,"Confirmation","Supprimer cet employé ?") != QMessageBox::Yes) return;
         QSqlDatabase db = Connection::instance()->database();
         if (!db.isOpen()) { Connection::instance()->createConnect(); db = Connection::instance()->database(); }
-        const QString tbl = detectEmployeeTableName(db);
-        if (tbl.isEmpty()) { QMessageBox::critical(this,"Erreur","Table employés introuvable."); return; }
-        const EmpColumns cols = detectEmpColumns(db, tbl);
-        if (!cols.valid) { QMessageBox::critical(this,"Erreur","Colonnes employés non détectées."); return; }
-
-        if (QMessageBox::question(this, "Confirmation",
-                QString("Supprimer l'employé '%1' ?\nSes commandes liées seront dissociées.").arg(id),
-                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
-            return;
-
-        // Trouver toutes les tables/colonnes qui référencent la table employé via FK
-        // et mettre ces colonnes à NULL pour éviter ORA-02292
-        QSqlQuery fkQuery(db);
-        fkQuery.prepare(
-            "SELECT fkc.table_name, fkc.column_name "
-            "FROM user_constraints fk "
-            "JOIN user_constraints pk ON fk.r_constraint_name = pk.constraint_name "
-            "JOIN user_cons_columns fkc ON fk.constraint_name = fkc.constraint_name "
-            "WHERE fk.constraint_type = 'R' "
-            "AND pk.table_name = :tbl"
-        );
-        fkQuery.bindValue(":tbl", tbl.toUpper());
-        if (fkQuery.exec()) {
-            while (fkQuery.next()) {
-                const QString childTable  = fkQuery.value(0).toString();
-                const QString childColumn = fkQuery.value(1).toString();
-                QSqlQuery qNull(db);
-                qNull.prepare(QString("UPDATE %1 SET %2=NULL WHERE %2=:id")
-                                  .arg(childTable, childColumn));
-                qNull.bindValue(":id", id);
-                if (!qNull.exec())
-                    qDebug() << "Dissociation FK échouée:" << qNull.lastError().text();
-            }
-        }
-        // COMMIT intermédiaire pour valider les NULLs avant le DELETE
-        QSqlQuery commitNull(db); commitNull.exec("COMMIT");
-
         QSqlQuery q(db);
-        q.prepare(QString("DELETE FROM %1 WHERE %2=:id").arg(tbl, cols.id));
+        q.prepare("DELETE FROM EMPLOYE WHERE CIN=:id");
         q.bindValue(":id", id);
         if (!q.exec()) { QMessageBox::critical(this,"Erreur", q.lastError().text()); return; }
         QSqlQuery commit(db); commit.exec("COMMIT");
-        refreshEmpTable(); setTab(3);
-        QMessageBox::information(this,"Succès","Employé supprimé.");
+        refreshEmpTable(); QMessageBox::information(this,"Succès","Employé supprimé.");
     });
 
     refreshEmpTable();
@@ -4522,8 +5184,24 @@ Supplier MainWindow::supplierFromForm(bool *ok) const
     s.prix = supPriceInput ? supPriceInput->value() : 0.0;
     s.statut = supStatusInput ? supStatusInput->currentText() : QString();
 
-    if (s.nom.isEmpty() || s.type.isEmpty() || s.telephone.isEmpty() || s.email.isEmpty()) {
-        QMessageBox::warning(const_cast<MainWindow*>(this), "Champs requis", "Nom, type, téléphone et email sont obligatoires.");
+    if (s.nom.isEmpty() || s.type.isEmpty() || s.adresse.isEmpty() || s.telephone.isEmpty() || s.email.isEmpty()) {
+        QMessageBox::warning(const_cast<MainWindow*>(this), "Champs requis", "Nom, type, adresse, téléphone et email sont obligatoires.");
+        return s;
+    }
+    if (!isValidPersonName(s.nom)) {
+        QMessageBox::warning(const_cast<MainWindow*>(this), "Saisie invalide", "Nom fournisseur invalide.");
+        return s;
+    }
+    if (s.type.size() < 2) {
+        QMessageBox::warning(const_cast<MainWindow*>(this), "Saisie invalide", "Type fournisseur invalide.");
+        return s;
+    }
+    if (!isValidPhone(s.telephone)) {
+        QMessageBox::warning(const_cast<MainWindow*>(this), "Saisie invalide", "Téléphone fournisseur invalide.");
+        return s;
+    }
+    if (!isValidEmail(s.email)) {
+        QMessageBox::warning(const_cast<MainWindow*>(this), "Saisie invalide", "Email fournisseur invalide.");
         return s;
     }
     if (ok) *ok = true;
@@ -4719,6 +5397,7 @@ void MainWindow::applyBarStyle(const QList<QPushButton*> &buttons, bool checkabl
         if (!b) continue;
         if (checkable) b->setCheckable(true);
         b->setStyleSheet(buttonBarStyle);
+        ButtonAnimationHelper::setupLuxuryButtonAnimation(b);
     }
 }
 
@@ -4730,13 +5409,18 @@ void MainWindow::appendAiMessage(const QString &speaker, const QString &text)
     if (speaker == "Vous") {
         html = QString(R"(<div style='margin:8px 0; display:flex; align-items:flex-end; justify-content:flex-end;'>
             <div style='max-width:70%%; background:#e0e7ef; color:#2a2a2a; border-radius:16px 16px 4px 16px; padding:10px 16px; font-size:15px; box-shadow:0 2px 8px #0001;'>%1</div>
-            <img src='https://ui-avatars.com/api/?name=Vous&background=8B4513&color=fff&size=32' style='margin-left:8px; border-radius:50%%; width:32px; height:32px;'>
+            <div style='margin-left:8px; width:32px; height:32px; border-radius:50%%; background:#8B4513; color:white; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center;'>V</div>
         </div>)").arg(text.toHtmlEscaped());
     } else {
+        const QString botName = speaker.isEmpty() ? "Chat Bot" : speaker;
+        const QString botInitial = botName.left(1).toUpper().toHtmlEscaped();
         html = QString(R"(<div style='margin:8px 0; display:flex; align-items:flex-end;'>
-            <img src='https://ui-avatars.com/api/?name=AI&background=F2D2B5&color=8B4513&size=32' style='margin-right:8px; border-radius:50%%; width:32px; height:32px;'>
-            <div style='max-width:70%%; background:#fffbe6; color:#8B4513; border-radius:16px 16px 16px 4px; padding:10px 16px; font-size:15px; box-shadow:0 2px 8px #0001;'><b>Assistant</b><br>%1</div>
-        </div>)").arg(text.toHtmlEscaped());
+            <div style='margin-right:8px; width:32px; height:32px; border-radius:50%%; background:#F2D2B5; color:#8B4513; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center;'>%1</div>
+            <div style='max-width:70%%; background:#fffbe6; color:#8B4513; border-radius:16px 16px 16px 4px; padding:10px 16px; font-size:15px; box-shadow:0 2px 8px #0001;'><b>%2</b><br>%3</div>
+        </div>)")
+            .arg(botInitial)
+            .arg(botName.toHtmlEscaped())
+            .arg(text.toHtmlEscaped());
     }
     ui->tb_ai_log->append(html);
 }
@@ -4748,14 +5432,29 @@ void MainWindow::sendAiMessage(const QString &userText)
 
     appendAiMessage("Vous", trimmed);
 
+    // Si Gemini est configuré, il servira de fallback pour toute question non reconnue localement.
+    const bool geminiEnabled = aiNetwork && !geminiApiKey.trimmed().isEmpty();
 
-    // Mode connecté à la base : réponses variées et naturelles
+    
+    // Mode assistant: réponses métier + conversation naturelle
     QString question = trimmed.toLower();
     QSqlDatabase db = Connection::instance()->database();
-    if (!db.isOpen()) {
-        appendAiMessage("Assistant", "Je ne peux pas accéder à la base de données pour le moment. Veuillez réessayer plus tard.");
-        return;
-    }
+    auto ensureDbOpen = [&]() -> bool {
+        if (!db.isOpen()) {
+            Connection::instance()->createConnect();
+            db = Connection::instance()->database();
+        }
+        return db.isOpen();
+    };
+
+    auto containsAny = [&](const QStringList &tokens) -> bool {
+        for (const QString &token : tokens) {
+            if (question.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    };
 
     // 1. Stock matière (détection naturelle)
     QStringList matieres = {"cuir", "tissu", "fil", "accessoire", "synthétique"};
@@ -4774,43 +5473,42 @@ void MainWindow::sendAiMessage(const QString &userText)
         if (question.contains(expr)) { demandeStock = true; break; }
     }
     if (!matiereCherchee.isEmpty() && demandeStock) {
+        if (!ensureDbOpen()) {
+            appendAiMessage("Chat Bot", "Je ne peux pas accéder à la base de données pour le moment. Veuillez réessayer plus tard.");
+            return;
+        }
         QSqlQuery q(db);
         extern QString gMaterialsTableName;
         QString sql = "SELECT NVL(nom_matiere, type_matiere), quantite_stock FROM " + gMaterialsTableName + " WHERE LOWER(NVL(nom_matiere, type_matiere)) LIKE :matiere";
         q.prepare(sql);
         q.bindValue(":matiere", "%" + matiereCherchee + "%");
         if (!q.exec()) {
-            appendAiMessage("Assistant", "Désolé, je n'ai pas pu obtenir le stock : " + q.lastError().text());
+            appendAiMessage("Chat Bot", "Désolé, je n'ai pas pu obtenir le stock : " + q.lastError().text());
             return;
         }
         if (q.next()) {
             QString nom = q.value(0).toString();
             int stock = q.value(1).toInt();
-            appendAiMessage("Assistant", QString("Il reste <b>%1</b> unité(s) de <b>%2</b> en stock.").arg(stock).arg(nom));
+            appendAiMessage("Chat Bot", QString("Il reste <b>%1</b> unité(s) de <b>%2</b> en stock.").arg(stock).arg(nom));
         } else {
-            appendAiMessage("Assistant", "Je n'ai trouvé aucune matière correspondant à : " + matiereCherchee);
+            appendAiMessage("Chat Bot", "Je n'ai trouvé aucune matière correspondant à : " + matiereCherchee);
         }
         return;
     }
 
-    // 2. Conseil anti-gaspillage (expressions variées)
-    QStringList exprConseil = {"gaspillage", "conseil", "économiser", "astuce", "éviter de gaspiller", "réduire les pertes", "optimiser", "moins de perte", "éviter le gaspillage"};
-    for (const QString &expr : exprConseil) {
-        if (question.contains(expr)) {
-            appendAiMessage("Assistant", "Pour limiter le gaspillage, pensez à réutiliser les chutes de matières et à optimiser la découpe. Surveillez aussi les stocks faibles pour éviter les ruptures.");
-            return;
-        }
-    }
-
-    // 3. Alerte stock faible (expressions variées)
+    // 2. Alerte stock faible (expressions variées)
     QStringList exprAlerte = {"alerte", "rupture", "alerter", "faible", "bientôt fini", "presque vide", "plus beaucoup", "manque", "bientôt en rupture"};
     for (const QString &expr : exprAlerte) {
         if (question.contains(expr)) {
+            if (!ensureDbOpen()) {
+                appendAiMessage("Chat Bot", "Je ne peux pas accéder à la base de données pour le moment. Veuillez réessayer plus tard.");
+                return;
+            }
             QSqlQuery q(db);
             extern QString gMaterialsTableName;
             QString sql = "SELECT NVL(nom_matiere, type_matiere), quantite_stock FROM " + gMaterialsTableName + " WHERE quantite_stock < 10 ORDER BY quantite_stock ASC";
             if (!q.exec(sql)) {
-                appendAiMessage("Assistant", "Impossible d'obtenir la liste des stocks faibles : " + q.lastError().text());
+                appendAiMessage("Chat Bot", "Impossible d'obtenir la liste des stocks faibles : " + q.lastError().text());
                 return;
             }
             QStringList alertes;
@@ -4820,173 +5518,723 @@ void MainWindow::sendAiMessage(const QString &userText)
                 alertes << QString("%1 (%2 unité(s))").arg(nom).arg(stock);
             }
             if (alertes.isEmpty()) {
-                appendAiMessage("Assistant", "Aucune matière n'est en rupture ou proche de la rupture.");
+                appendAiMessage("Chat Bot", "Aucune matière n'est en rupture ou proche de la rupture.");
             } else {
-                appendAiMessage("Assistant", "Attention, stock faible pour : " + alertes.join(", "));
+                appendAiMessage("Chat Bot", "Attention, stock faible pour : " + alertes.join(", "));
             }
             return;
         }
     }
 
-    // 4. Statistiques globales (expressions variées)
+    // 3. Statistiques globales (expressions variées)
     QStringList exprStats = {"stat", "statistique", "moyenne", "total", "combien de matières", "nombre de matières", "bilan", "résumé", "synthèse"};
     for (const QString &expr : exprStats) {
         if (question.contains(expr)) {
+            if (!ensureDbOpen()) {
+                appendAiMessage("Chat Bot", "Je ne peux pas accéder à la base de données pour le moment. Veuillez réessayer plus tard.");
+                return;
+            }
             QSqlQuery q(db);
             extern QString gMaterialsTableName;
             QString sql = "SELECT COUNT(*), SUM(quantite_stock), AVG(rendement), AVG(perte) FROM " + gMaterialsTableName;
             if (!q.exec(sql) || !q.next()) {
-                appendAiMessage("Assistant", "Impossible d'obtenir les statistiques globales.");
+                appendAiMessage("Chat Bot", "Impossible d'obtenir les statistiques globales.");
                 return;
             }
             int totalMat = q.value(0).toInt();
             int totalStock = q.value(1).toInt();
             double moyRendement = q.value(2).toDouble();
             double moyPerte = q.value(3).toDouble();
-            appendAiMessage("Assistant", QString("Il y a <b>%1</b> matières différentes pour un total de <b>%2</b> unités en stock. Rendement moyen : <b>%3%</b>, Perte moyenne : <b>%4%</b>.")
-                                             .arg(QString::number(totalMat),
-                                                  QString::number(totalStock),
-                                                  QString::number(moyRendement, 'f', 1),
-                                                  QString::number(moyPerte, 'f', 1)));
+            appendAiMessage("Chat Bot", QString("Il y a %1 matières différentes pour un total de %2 unités en stock. Rendement moyen : %3%, Perte moyenne : %4%.")
+                .arg(totalMat).arg(totalStock).arg(QString::number(moyRendement, 'f', 1)).arg(QString::number(moyPerte, 'f', 1)));
             return;
         }
     }
 
-    // 5. Réponse par défaut
-    appendAiMessage("Assistant", "Je peux répondre sur le stock, donner des conseils anti-gaspillage, signaler les alertes de stock faible ou fournir des statistiques. Posez-moi une question sur ces sujets !");
+    // 4. Conseil anti-gaspillage (expressions variées)
+    QStringList exprConseil = {"gaspillage", "conseil", "économiser", "astuce", "éviter de gaspiller", "réduire les pertes", "optimiser", "moins de perte", "éviter le gaspillage"};
+    for (const QString &expr : exprConseil) {
+        if (question.contains(expr)) {
+            appendAiMessage("Chat Bot", "Pour limiter le gaspillage, pensez à réutiliser les chutes de matières et à optimiser la découpe. Surveillez aussi les stocks faibles pour éviter les ruptures.");
+            return;
+        }
+    }
+
+    // 5. Conversation naturelle (mode local)
+    if (containsAny({"bonjour", "salut", "bonsoir", "coucou", "hello", "hi"})) {
+        appendAiMessage("Chat Bot", "Bonjour ! Qu'est-ce que je peux faire pour vous aider ?");
+        return;
+    }
+    if (containsAny({"aide", "help", "que peux-tu faire", "que peux tu faire", "qu'est-ce que tu peux faire", "qu est ce que tu peux faire", "comment tu peux m'aider", "comment tu peux m aider"})) {
+        appendAiMessage("Chat Bot", "Je peux vous aider sur : le stock des matières, les alertes de rupture, les statistiques globales et des conseils anti-gaspillage.");
+        return;
+    }
+    if (containsAny({"comment ça va", "comment ca va", "ça va", "ca va", "cv"})) {
+        appendAiMessage("Chat Bot", "Je vais très bien, merci. Et vous ?");
+        return;
+    }
+    if (containsAny({"qui es-tu", "qui es tu", "tu es qui", "ton nom", "présente-toi", "presente-toi"})) {
+        appendAiMessage("Chat Bot", "Je suis votre Chat Bot de gestion. Je suis là pour vous aider rapidement sur vos données et vos questions métier.");
+        return;
+    }
+    if (containsAny({"merci", "thanks", "thank you"})) {
+        appendAiMessage("Chat Bot", "Avec plaisir ! Si vous voulez, je peux aussi vous donner un résumé du stock actuel.");
+        return;
+    }
+    if (containsAny({"au revoir", "aurevoir", "bye", "à bientôt", "a bientot"})) {
+        appendAiMessage("Chat Bot", "À bientôt ! N'hésitez pas si vous avez besoin d'aide.");
+        return;
+    }
+
+    // 6. Réponse par défaut: si possible, répondre via Gemini pour couvrir toutes les questions.
+    if (geminiEnabled) {
+        sendGeminiMessage(trimmed);
+        return;
+    }
+
+    appendAiMessage("Chat Bot", "Je suis en mode local. J'ai répondu au mieux, mais pour traiter toutes les questions activez GEMINI_API_KEY dans .env.local.");
     return;
 }
 
 void MainWindow::sendGeminiMessage(const QString &userText)
 {
     if (!aiNetwork) {
-        appendAiMessage("Assistant", "Service réseau indisponible.");
-        return;
-    }
-    if (geminiApiKey.isEmpty()) {
-        appendAiMessage("Assistant", "Configurez GEMINI_API_KEY ou .env.local pour activer Gemini.");
+        appendAiMessage("Chat Bot", "Service réseau indisponible.");
         return;
     }
 
-    appendAiMessage("Assistant", "(réflexion en cours via Gemini...)");
+    const QString apiKey = geminiApiKey.trimmed();
+    if (apiKey.isEmpty()) {
+        appendAiMessage("Chat Bot", "Configurez GEMINI_API_KEY ou .env.local pour activer Gemini.");
+        return;
+    }
+
+    auto normalizeModelName = [](QString modelName) -> QString {
+        modelName = modelName.trimmed();
+        if (modelName.isEmpty()) {
+            return {};
+        }
+        if (!modelName.startsWith("models/", Qt::CaseInsensitive)) {
+            modelName.prepend("models/");
+        }
+        return modelName;
+    };
+
+    auto isAudioOnlyChatModel = [](const QString &modelName) -> bool {
+        const QString normalized = modelName.trimmed().toLower();
+        return normalized.contains("-tts")
+            || normalized.contains("/tts")
+            || normalized.contains("audio");
+    };
+
+    const QString preferredModel = normalizeModelName(geminiPreferredModel);
+
+    appendAiMessage("Chat Bot", "(réflexion en cours via Gemini...)");
+
+    auto sanitize = [apiKey](QString text) -> QString {
+        if (!apiKey.isEmpty()) {
+            text.replace(apiKey, "***");
+        }
+        text.replace(QRegularExpression("key=[^&\\s]+"), "key=***");
+        return text;
+    };
 
     QJsonObject part;
     part["text"] = userText;
     QJsonObject content;
     content["parts"] = QJsonArray{part};
+
+    QJsonObject systemPart;
+    systemPart["text"] = QString::fromUtf8(
+        "Réponds en français avec une réponse courte et directe: 1 à 2 phrases maximum,"
+        " maximum 40 mots, sans liste longue."
+    );
+    QJsonObject systemInstruction;
+    systemInstruction["parts"] = QJsonArray{systemPart};
+
+    QJsonObject generationConfig;
+    generationConfig["maxOutputTokens"] = 160;
+    generationConfig["temperature"] = 0.2;
+
     QJsonObject payload;
     payload["contents"] = QJsonArray{content};
+    payload["systemInstruction"] = systemInstruction;
+    payload["generationConfig"] = generationConfig;
 
-    // Modèle Gemini forcé, ignore toute variable d'environnement ou .env.local
-    const QString modelName = "gemini-1.5-flash-latest";
-    const QUrl url(QString("https://generativelanguage.googleapis.com/v1/models/%1:generateContent?key=%2").arg(modelName, geminiApiKey));
-    QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    const QByteArray payloadBytes = QJsonDocument(payload).toJson();
 
-    auto *reply = aiNetwork->post(req, QJsonDocument(payload).toJson());
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
+    auto modelsToTry = std::make_shared<QStringList>();
+    auto modelIndex = std::make_shared<int>(0);
+    auto tryNextModel = std::make_shared<std::function<void()>>();
 
-        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const QByteArray data = reply->readAll();
-        const QString body = QString::fromUtf8(data);
-
-        if (reply->error() != QNetworkReply::NoError) {
-            appendAiMessage("Assistant", QString("Erreur Gemini (%1): %2").arg(statusCode).arg(reply->errorString()));
-            if (!body.isEmpty()) appendAiMessage("Assistant", QString("Détail: %1").arg(body.left(400)));
-            return;
+    // Tente les modèles un par un, et saute automatiquement ceux non disponibles.
+    *tryNextModel = [this, apiKey, payloadBytes, modelsToTry, modelIndex, tryNextModel, sanitize]() {
+        while (*modelIndex < modelsToTry->size() && modelsToTry->at(*modelIndex).trimmed().isEmpty()) {
+            ++(*modelIndex);
         }
-        if (statusCode >= 300) {
-            appendAiMessage("Assistant", QString("Erreur HTTP Gemini %1").arg(statusCode));
-            if (!body.isEmpty()) appendAiMessage("Assistant", QString("Détail: %1").arg(body.left(400)));
+
+        if (*modelIndex >= modelsToTry->size()) {
+            appendAiMessage("Chat Bot", "Aucun modèle Gemini compatible n'a été trouvé pour cette clé API.");
             return;
         }
 
-        const QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (!doc.isObject()) {
-            appendAiMessage("Assistant", "Réponse Gemini invalide.");
+        QString modelResource = modelsToTry->at(*modelIndex).trimmed();
+        if (!modelResource.startsWith("models/")) {
+            modelResource.prepend("models/");
+        }
+
+        const QUrl url(QString("https://generativelanguage.googleapis.com/v1beta/%1:generateContent?key=%2")
+                           .arg(modelResource, apiKey));
+        QNetworkRequest req(url);
+        req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+        auto *reply = aiNetwork->post(req, payloadBytes);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, modelResource, modelsToTry, modelIndex, tryNextModel, sanitize]() {
+            reply->deleteLater();
+
+            const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const QByteArray data = reply->readAll();
+            const QString body = QString::fromUtf8(data);
+            const QString safeBody = sanitize(body);
+
+            const bool modelNotFound = statusCode == 404
+                || safeBody.contains("not found", Qt::CaseInsensitive)
+                || safeBody.contains("not supported for generateContent", Qt::CaseInsensitive);
+
+            const bool textModalityUnsupported = statusCode == 400
+                && (safeBody.contains("response modalities (TEXT) is not supported", Qt::CaseInsensitive)
+                    || safeBody.contains("accepts the following combination of response modalities", Qt::CaseInsensitive)
+                    || safeBody.contains("INVALID_ARGUMENT", Qt::CaseInsensitive));
+
+            const bool transientUnavailable = statusCode == 429
+                || statusCode == 500
+                || statusCode == 503
+                || safeBody.contains("UNAVAILABLE", Qt::CaseInsensitive)
+                || safeBody.contains("high demand", Qt::CaseInsensitive)
+                || safeBody.contains("temporarily unavailable", Qt::CaseInsensitive);
+
+            const bool keyRejected = statusCode == 401
+                || statusCode == 403
+                || safeBody.contains("PERMISSION_DENIED", Qt::CaseInsensitive)
+                || safeBody.contains("reported as leaked", Qt::CaseInsensitive)
+                || safeBody.contains("invalid api key", Qt::CaseInsensitive)
+                || safeBody.contains("API key", Qt::CaseInsensitive);
+
+            if (keyRejected) {
+                geminiApiKey.clear();
+                appendAiMessage("Chat Bot", "Votre clé Gemini est bloquée ou invalide. Remplacez GEMINI_API_KEY dans .env.local puis redémarrez l'application.");
+                appendAiMessage("Chat Bot", "Je passe automatiquement en mode local pour continuer à vous aider.");
+                return;
+            }
+
+            if ((reply->error() != QNetworkReply::NoError || statusCode >= 300)
+                && (modelNotFound || transientUnavailable || textModalityUnsupported)) {
+                ++(*modelIndex);
+                if (*modelIndex < modelsToTry->size()) {
+                    (*tryNextModel)();
+                    return;
+                }
+
+                if (transientUnavailable) {
+                    appendAiMessage("Chat Bot", "Les modèles Gemini sont temporairement surchargés (503). Réessayez dans quelques instants.");
+                    appendAiMessage("Chat Bot", "Je reste disponible en mode local pour les questions stock/statistiques.");
+                } else if (textModalityUnsupported) {
+                    appendAiMessage("Chat Bot", "Le modèle configuré est audio/TTS et ne peut pas répondre en texte.");
+                    appendAiMessage("Chat Bot", "Utilisez un modèle texte, par exemple: models/gemini-2.5-flash.");
+                } else {
+                    appendAiMessage("Chat Bot", "Aucun modèle Gemini compatible n'a été trouvé pour cette clé API.");
+                }
+                return;
+            }
+
+            if (reply->error() != QNetworkReply::NoError) {
+                appendAiMessage("Chat Bot", QString("Erreur Gemini (%1): %2")
+                                               .arg(statusCode)
+                                               .arg(sanitize(reply->errorString())));
+                if (!safeBody.isEmpty()) {
+                    appendAiMessage("Chat Bot", QString("Détail (%1): %2").arg(modelResource, safeBody.left(700)));
+                }
+                return;
+            }
+
+            if (statusCode >= 300) {
+                appendAiMessage("Chat Bot", QString("Erreur HTTP Gemini %1").arg(statusCode));
+                if (!safeBody.isEmpty()) {
+                    appendAiMessage("Chat Bot", QString("Détail (%1): %2").arg(modelResource, safeBody.left(700)));
+                }
+                return;
+            }
+
+            const QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                appendAiMessage("Chat Bot", "Réponse Gemini invalide.");
+                return;
+            }
+
+            QString responseText;
+            const QJsonArray candidates = doc.object().value("candidates").toArray();
+            for (const QJsonValue &candidateValue : candidates) {
+                const QJsonObject contentObj = candidateValue.toObject().value("content").toObject();
+                const QJsonArray parts = contentObj.value("parts").toArray();
+
+                QStringList textParts;
+                for (const QJsonValue &partValue : parts) {
+                    const QString text = partValue.toObject().value("text").toString().trimmed();
+                    if (!text.isEmpty()) {
+                        textParts << text;
+                    }
+                }
+
+                if (!textParts.isEmpty()) {
+                    responseText = textParts.join(" ").simplified();
+                    break;
+                }
+            }
+
+            if (responseText.isEmpty()) {
+                appendAiMessage("Chat Bot", "Réponse Gemini vide.");
+                return;
+            }
+
+            // Si un modèle renvoie une réponse tronquée (ex: "Vous pouvez"),
+            // on tente automatiquement le modèle suivant.
+            const QStringList rawWords = responseText.split(' ', Qt::SkipEmptyParts);
+            const bool suspiciouslyShort = rawWords.size() <= 2
+                && !responseText.endsWith('.')
+                && !responseText.endsWith('!')
+                && !responseText.endsWith('?');
+            if (suspiciouslyShort && (*modelIndex + 1) < modelsToTry->size()) {
+                ++(*modelIndex);
+                (*tryNextModel)();
+                return;
+            }
+
+            // Garde-fou UX: forcer une réponse courte même si le modèle déborde.
+            QString shortText = responseText.simplified();
+
+            int sentenceCount = 0;
+            int cutPos = -1;
+            for (int i = 0; i < shortText.size(); ++i) {
+                const QChar ch = shortText.at(i);
+                if (ch == '.' || ch == '!' || ch == '?') {
+                    ++sentenceCount;
+                    if (sentenceCount >= 2) {
+                        cutPos = i + 1;
+                        break;
+                    }
+                }
+            }
+            if (cutPos > 0 && cutPos < shortText.size()) {
+                shortText = shortText.left(cutPos).trimmed();
+            }
+
+            QStringList words = shortText.split(' ', Qt::SkipEmptyParts);
+            if (words.size() > 40) {
+                shortText = words.mid(0, 40).join(' ') + "...";
+            }
+
+            appendAiMessage("Chat Bot", shortText);
+        });
+    };
+
+    // Découvrir les modèles de la clé puis préparer une file d'essais robuste.
+    const QUrl listUrl(QString("https://generativelanguage.googleapis.com/v1beta/models?key=%1").arg(apiKey));
+    QNetworkRequest listReq(listUrl);
+    auto *listReply = aiNetwork->get(listReq);
+    connect(listReply, &QNetworkReply::finished, this, [this, listReply, modelsToTry, modelIndex, tryNextModel, sanitize, preferredModel, normalizeModelName, isAudioOnlyChatModel]() {
+        listReply->deleteLater();
+
+        const int statusCode = listReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray listData = listReply->readAll();
+        const QString safeListBody = sanitize(QString::fromUtf8(listData));
+
+        const bool keyRejected = statusCode == 401
+            || statusCode == 403
+            || safeListBody.contains("PERMISSION_DENIED", Qt::CaseInsensitive)
+            || safeListBody.contains("reported as leaked", Qt::CaseInsensitive)
+            || safeListBody.contains("invalid api key", Qt::CaseInsensitive)
+            || safeListBody.contains("API key", Qt::CaseInsensitive);
+
+        if (keyRejected) {
+            geminiApiKey.clear();
+            appendAiMessage("Chat Bot", "Votre clé Gemini est bloquée ou invalide. Remplacez GEMINI_API_KEY dans .env.local puis redémarrez l'application.");
+            appendAiMessage("Chat Bot", "Je passe automatiquement en mode local pour continuer à vous aider.");
             return;
         }
-        const QJsonArray candidates = doc.object().value("candidates").toArray();
-        if (candidates.isEmpty()) {
-            appendAiMessage("Assistant", "Pas de réponse Gemini.");
-            return;
+
+        QStringList availableModels;
+
+        if (listReply->error() == QNetworkReply::NoError) {
+            const QJsonDocument listDoc = QJsonDocument::fromJson(listData);
+            if (listDoc.isObject()) {
+                const QJsonArray models = listDoc.object().value("models").toArray();
+                for (const QJsonValue &v : models) {
+                    const QJsonObject modelObj = v.toObject();
+                    const QString name = modelObj.value("name").toString().trimmed();
+                    if (!name.startsWith("models/gemini-", Qt::CaseInsensitive)) {
+                        continue;
+                    }
+
+                    if (isAudioOnlyChatModel(name)) {
+                        continue;
+                    }
+
+                    const QJsonArray methods = modelObj.value("supportedGenerationMethods").toArray();
+                    bool supportsGenerate = methods.isEmpty();
+                    for (const QJsonValue &m : methods) {
+                        if (m.toString().compare("generateContent", Qt::CaseInsensitive) == 0) {
+                            supportsGenerate = true;
+                            break;
+                        }
+                    }
+
+                    if (supportsGenerate && !availableModels.contains(name)) {
+                        availableModels << name;
+                    }
+                }
+            }
         }
-        const QJsonObject contentObj = candidates.first().toObject().value("content").toObject();
-        const QJsonArray parts = contentObj.value("parts").toArray();
-        if (parts.isEmpty()) {
-            appendAiMessage("Assistant", "Réponse Gemini vide.");
-            return;
+
+        QStringList rankedModels;
+
+        const QString forcedModel = normalizeModelName(preferredModel);
+        if (!forcedModel.isEmpty() && !isAudioOnlyChatModel(forcedModel)) {
+            rankedModels << forcedModel;
+        } else if (!forcedModel.isEmpty()) {
+            appendAiMessage("Chat Bot", QString("Le modèle configuré (%1) est audio/TTS. Bascule auto vers un modèle texte.").arg(forcedModel));
         }
-        const QString text = parts.first().toObject().value("text").toString().trimmed();
-        appendAiMessage("Assistant", text.isEmpty() ? "(réponse vide)" : text);
+
+        const QStringList preferredPrefixes = {
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-pro",
+            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro"
+        };
+
+        for (const QString &prefix : preferredPrefixes) {
+            for (const QString &model : availableModels) {
+                if (model.startsWith(prefix, Qt::CaseInsensitive) && !rankedModels.contains(model)) {
+                    rankedModels << model;
+                }
+            }
+        }
+
+        for (const QString &model : availableModels) {
+            if (!rankedModels.contains(model)) {
+                rankedModels << model;
+            }
+        }
+
+        const QStringList fallbackModels = {
+            "models/gemini-2.5-flash",
+            "models/gemini-2.5-pro",
+            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-2.0-flash-exp",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro"
+        };
+
+        for (const QString &model : fallbackModels) {
+            if (!rankedModels.contains(model)) {
+                rankedModels << model;
+            }
+        }
+
+        *modelsToTry = rankedModels;
+        *modelIndex = 0;
+        (*tryNextModel)();
     });
 }
 
-void MainWindow::update_label()
+// ============================================================================
+// Animation Methods Implementation
+// ============================================================================
+
+void MainWindow::animateFadeInWidget(QWidget* widget, int duration)
 {
-    // Accumulation des données reçues dans le buffer MainWindow::data
-    data += A.read_from_arduino();
-    
-    // On traite chaque ligne complète terminée par '\n'
-    while (data.contains('\n')) {
-        int pos = data.indexOf('\n');
-        QByteArray line = data.left(pos).trimmed();
-        data.remove(0, pos + 1);
+    if (!widget) return;
+    QPropertyAnimation* fadeIn = AnimationUtils::createFadeInAnimation(widget, duration);
+    connect(fadeIn, &QPropertyAnimation::finished, [fadeIn]() { fadeIn->deleteLater(); });
+    fadeIn->start();
+}
 
-        QString id = QString::fromLatin1(line);
-        if (id.isEmpty()) continue;
+void MainWindow::animateFadeOutWidget(QWidget* widget, int duration)
+{
+    if (!widget) return;
+    QPropertyAnimation* fadeOut = AnimationUtils::createFadeOutAnimation(widget, duration);
+    connect(fadeOut, &QPropertyAnimation::finished, [fadeOut]() { fadeOut->deleteLater(); });
+    fadeOut->start();
+}
 
-        qDebug() << "ID Arduino reçu:" << id;
+void MainWindow::animateSlideInWidget(QWidget* widget, bool fromLeft, int duration)
+{
+    if (!widget) return;
+    QPropertyAnimation* slideIn = fromLeft 
+        ? AnimationUtils::createSlideInLeftAnimation(widget, duration)
+        : AnimationUtils::createSlideInRightAnimation(widget, duration);
+    connect(slideIn, &QPropertyAnimation::finished, [slideIn]() { slideIn->deleteLater(); });
+    slideIn->start();
+}
 
-        QSqlDatabase db = Connection::instance()->getDatabase();
-        if (!db.isOpen()) {
-            qDebug() << "Base de données non disponible pour l'auth Arduino";
-            A.write_to_arduino("KO\n");
-            continue;
-        }
+void MainWindow::animatePulseWidget(QWidget* widget, int duration)
+{
+    if (!widget) return;
+    QSequentialAnimationGroup* pulse = AnimationUtils::createPulseAnimation(widget, duration);
+    connect(pulse, &QSequentialAnimationGroup::finished, [pulse]() { pulse->deleteLater(); });
+    pulse->start();
+}
 
-        const QString tbl = detectEmployeeTableName(db);
-        const EmpColumns cols = detectEmpColumns(db, tbl);
-
-        if (tbl.isEmpty() || !cols.id.isEmpty() == false) { // cols.valid is not explicitly set in the user's latest code but cols.id.isEmpty() is a good check
-            qDebug() << "Table employés ou colonnes non détectées";
-            A.write_to_arduino("KO\n");
-            continue;
-        }
-
-        QSqlQuery query(db);
-        // Utilisation de TRIM pour gérer les types CHAR (espaces résiduels) dans Oracle
-        query.prepare(QString("SELECT %1 FROM %2 WHERE TRIM(%3) = :id").arg(cols.nom, tbl, cols.id));
-        query.bindValue(":id", id);
-
-        if (query.exec()) {
-            if (query.next()) {
-                QString nom = query.value(0).toString();
-                // Format attendu par l'Arduino: "OK [NOM]\n"
-                A.write_to_arduino("OK " + nom.toUtf8() + "\n");
-                qDebug() << "Authentification réussie pour: " << nom;
-
-                // Feedback visuel sur l'UI Qt
-                if (lbl_door_status) {
-                    lbl_door_status->setText("🔓 PORTE OUVERTE\n" + nom);
-                    lbl_door_status->setStyleSheet("color: white; font-size: 16px; font-weight: bold; background: #2ea043; border-radius: 8px; padding: 10px; margin: 10px;");
-                    lbl_door_status->setVisible(true);
-                    
-                    // Masquer après 3 secondes (cohérence avec le délai Arduino)
-                    QTimer::singleShot(3000, this, [=](){
-                        lbl_door_status->setVisible(false);
-                    });
-                }
-            } else {
-                // Pas trouvé
-                A.write_to_arduino("KO\n");
-                qDebug() << "Authentification échouée: ID " << id << " inconnu dans " << tbl;
+void MainWindow::animateStatisticsUpdate()
+{
+    // Animer l'apparition des cartes de statistiques avec le style luxe
+    // Cette fonction est appelée après updateStatistics()
+    if (ui && ui->stat_main_card_orders) {
+        animateFadeInWidget(ui->stat_main_card_orders, 900);
+        QTimer::singleShot(150, [this]() {
+            if (ui && ui->stat_main_card_orders) {
+                animatePulseWidget(ui->stat_main_card_orders, 1000);
             }
-        } else {
-            qDebug() << "Erreur SQL Auth Arduino:" << query.lastError().text();
-            A.write_to_arduino("KO\n");
-        }
+        });
+    }
+    if (ui && ui->stat_main_card_revenue) {
+        animateFadeInWidget(ui->stat_main_card_revenue, 900);
+        QTimer::singleShot(200, [this]() {
+            if (ui && ui->stat_main_card_revenue) {
+                animatePulseWidget(ui->stat_main_card_revenue, 1000);
+            }
+        });
+    }
+    if (ui && ui->stat_main_card_pending) {
+        animateFadeInWidget(ui->stat_main_card_pending, 900);
+        QTimer::singleShot(250, [this]() {
+            if (ui && ui->stat_main_card_pending) {
+                animatePulseWidget(ui->stat_main_card_pending, 1000);
+            }
+        });
     }
 }
 
+void MainWindow::animateTableItemAppearance(QTableWidget* table)
+{
+    if (!table || table->rowCount() == 0) return;
+    
+    // Animer l'apparition de chaque ligne du tableau avec un délai cascadé
+    // Pour un effet luxe : cascadé lent et fluide
+    for (int row = 0; row < table->rowCount() && row < 20; ++row) {
+        QTimer::singleShot(row * 50, [this, table, row]() {
+            for (int col = 0; col < table->columnCount(); ++col) {
+                QTableWidgetItem* item = table->item(row, col);
+                if (item) {
+                    // Les items vont progressivement apparaître via l'opacité
+                    QWidget* widget = table->cellWidget(row, col);
+                    if (widget) {
+                        animateFadeInWidget(widget, 500);
+                    }
+                }
+            }
+        });
+    }
+}
+
+// ============================================================================
+// ARDUINO SENSOR IMPLEMENTATION
+// ============================================================================
+
+void MainWindow::connectToArduino()
+{
+    if (!arduinoSensor) {
+        qDebug() << "ArduinoSensor non initialise";
+        return;
+    }
+
+    if (arduinoSensor->isConnected()) {
+        return;
+    }
+
+    QStringList portCandidates;
+    const QList<QSerialPortInfo> availablePorts = QSerialPortInfo::availablePorts();
+    for (const QSerialPortInfo &portInfo : availablePorts) {
+        const QString portName = portInfo.portName().trimmed();
+        if (!portName.isEmpty()) {
+            portCandidates << portName;
+        }
+    }
+
+    if (portCandidates.isEmpty()) {
+        // Fallback defensif si aucun port n'est expose par QSerialPortInfo.
+        portCandidates = {"COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"};
+    }
+
+    portCandidates.removeDuplicates();
+    qDebug() << "🔌 Tentative de connexion Arduino...";
+    qDebug() << "Ports candidats:" << portCandidates;
+
+    for (const QString &port : portCandidates) {
+        qDebug() << "  → Essai port" << port;
+        if (arduinoSensor->connectToPort(port, 9600)) {
+            lastArduinoPort = port;
+            arduinoUnavailablePopupShown = false;
+            qDebug() << "✅ CONNECTÉ au port" << port;
+            if (!arduinoConnectedPopupShown) {
+                arduinoConnectedPopupShown = true;
+                QMessageBox::information(this,
+                                         "Connexion Arduino",
+                                         QString("Arduino connecté sur %1.").arg(port));
+            }
+            return;
+        }
+    }
+
+    qDebug() << "❌ Aucun port ne marche!";
+    if (!arduinoUnavailablePopupShown) {
+        arduinoUnavailablePopupShown = true;
+        QMessageBox::warning(this,
+                             "Arduino non trouvé",
+                             "Arduino introuvable sur les ports COM disponibles.\n"
+                             "L'application retentera automatiquement dans 30 secondes.");
+    }
+}
+
+void MainWindow::disconnectFromArduino()
+{
+    if (arduinoSensor) {
+        arduinoSensor->disconnectFromPort();
+        qDebug() << "Arduino déconnecté";
+    }
+}
+
+void MainWindow::onArduinoTemperatureReceived(float temperature, float humidity)
+{
+    // Mettre à jour les variables
+    currentTemperature = temperature;
+    currentHumidity = humidity;
+    
+    // Debug: afficher dans la console
+    qDebug() << QString("🌡️  Température: %1°C | Humidité: %2%")
+                    .arg(temperature, 0, 'f', 1)
+                    .arg(humidity, 0, 'f', 1);
+    
+    // Enregistrer dans la base de données
+    saveSensorDataToDatabase(temperature, humidity);
+    
+    // Vérifier le seuil de température
+    checkTemperatureThreshold(temperature);
+}
+
+void MainWindow::onArduinoErrorOccurred(const QString &error)
+{
+    qDebug() << "❌ Erreur Arduino:" << error;
+    // Optionnel : afficher un message (ne pas spammer!)
+}
+
+void MainWindow::onArduinoConnectedStatusChanged(bool connected)
+{
+    if (connected) {
+        arduinoUnavailablePopupShown = false;
+        qDebug() << "✓ Connexion Arduino établie";
+    } else {
+        arduinoConnectedPopupShown = false;
+        qDebug() << "✗ Connexion Arduino perdue";
+    }
+}
+
+void MainWindow::saveSensorDataToDatabase(float temperature, float humidity)
+{
+    // Récupérer la base de données Oracle via Connection (même point d'entrée que le reste de l'app).
+    QSqlDatabase db = Connection::instance()->getDatabase();
+
+    if (!db.isOpen() || !db.isValid()) {
+        Connection::instance()->createConnect();
+        db = Connection::instance()->getDatabase();
+
+        if (!db.isOpen() || !db.isValid()) {
+            if (!sensorDbUnavailableWarningShown) {
+                sensorDbUnavailableWarningShown = true;
+                QMessageBox::warning(this,
+                                     "Base de données",
+                                     "Connexion Oracle indisponible.\n"
+                                     "Les mesures ne sont pas enregistrées pour le moment.");
+            }
+            return;
+        }
+    }
+
+    QSqlQuery query(db);
+
+    query.prepare(
+        "INSERT INTO SENSOR_TEMPERATURE_LOG (TEMPERATURE, HUMIDITY) "
+        "VALUES (:temperature, :humidity)"
+    );
+    
+    query.addBindValue(temperature);
+    query.addBindValue(humidity);
+
+    if (!query.exec()) {
+        qDebug() << "❌ ERREUR INSERTION:" << query.lastError().text();
+    } else {
+        if (!db.commit()) {
+            qDebug() << "⚠️  Insertion OK mais COMMIT échoué:" << db.lastError().text();
+        }
+        sensorDbUnavailableWarningShown = false;
+    }
+}
+
+void MainWindow::checkTemperatureThreshold(float temperature)
+{
+    // Vérifier si la température dépasse le seuil
+    if (temperature >= temperatureThreshold) {
+        if (!temperatureAlertShown) {
+            temperatureAlertShown = true;
+            qDebug() << "🚨 ALERTE TEMPÉRATURE:" << temperature << "°C >= " << temperatureThreshold << "°C";
+            showTemperatureAlert(temperature);
+        }
+    } else {
+        // Réinitialiser le flag quand la température revient à la normale
+        temperatureAlertShown = false;
+    }
+}
+
+void MainWindow::showTemperatureAlert(float temperature)
+{
+    QString message = QString(
+        "🌡️ ALERTE TEMPÉRATURE ÉLEVÉE!\n\n"
+        "Température actuelle: %1°C\n"
+        "Seuil d'alerte: %2°C\n\n"
+        "Veuillez vérifier le système de refroidissement."
+    ).arg(temperature, 0, 'f', 1).arg(temperatureThreshold, 0, 'f', 1);
+    
+    // Utiliser QMessageBox qui est plus fiable
+    QMessageBox alertBox(QMessageBox::Warning, 
+                         "⚠️ Alerte Température", 
+                         message, 
+                         QMessageBox::Ok, 
+                         this);
+    alertBox.setStyleSheet(
+        "QMessageBox {"
+        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5A6C7D, stop:1 #3D4E5C);"
+        "}"
+        "QMessageBox QLabel {"
+        "  color: #FFFFFF;"
+        "}"
+        "QMessageBox QPushButton {"
+        "  background: #8B5E3B;"
+        "  color: #FFFFFF;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  padding: 8px 20px;"
+        "  min-width: 80px;"
+        "}"
+        "QMessageBox QPushButton:hover {"
+        "  background: #A0704A;"
+        "}"
+    );
+    
+    alertBox.exec();
+    
+    qDebug() << QString("⚠️ ALERTE TEMPÉRATURE: %1°C (Seuil: %2°C)")
+                    .arg(temperature, 0, 'f', 1)
+                    .arg(temperatureThreshold, 0, 'f', 1);
+}

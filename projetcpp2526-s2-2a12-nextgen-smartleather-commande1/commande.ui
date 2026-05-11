@@ -173,7 +173,7 @@
        <item>
         <widget class="QPushButton" name="btn_nav_ai">
          <property name="text">
-          <string>ASSISTANT IA</string>
+            <string>CHAT BOT</string>
          </property>
         </widget>
        </item>
@@ -291,7 +291,7 @@
               <number>18</number>
              </property>
              <item row="0" column="0">
-              <widget class="QLabel" name="label_order_id">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>ID Commande :</string>
                </property>
@@ -301,7 +301,7 @@
               <widget class="QLineEdit" name="le_id"/>
              </item>
              <item row="1" column="0">
-              <widget class="QLabel" name="label_order_type">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Type d'article :</string>
                </property>
@@ -342,7 +342,7 @@
               </widget>
              </item>
              <item row="2" column="0">
-              <widget class="QLabel" name="label_order_quantity">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Quantité :</string>
                </property>
@@ -356,7 +356,7 @@
               </widget>
              </item>
              <item row="3" column="0">
-              <widget class="QLabel" name="label_order_email">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Email Client :</string>
                </property>
@@ -366,7 +366,7 @@
               <widget class="QLineEdit" name="le_client_email"/>
              </item>
              <item row="4" column="0">
-              <widget class="QLabel" name="label_order_city">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Ville Client :</string>
                </property>
@@ -502,14 +502,14 @@
               </widget>
              </item>
              <item row="5" column="0">
-              <widget class="QLabel" name="label_order_status">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Statut :</string>
                </property>
               </widget>
              </item>
              <item row="6" column="0">
-              <widget class="QLabel" name="label_order_date">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Date Commande :</string>
                </property>
@@ -526,7 +526,7 @@
               </widget>
              </item>
              <item row="7" column="0">
-              <widget class="QLabel" name="label_order_delivery">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Date Livraison :</string>
                </property>
@@ -543,7 +543,7 @@
               </widget>
              </item>
              <item row="9" column="0">
-              <widget class="QLabel" name="label_order_price">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>Prix (TND) :</string>
                </property>
@@ -572,7 +572,7 @@
               </widget>
              </item>
              <item row="10" column="0">
-              <widget class="QLabel" name="label_order_employee_cin">
+              <widget class="QLabel" name="label">
                <property name="text">
                 <string>CIN Employé :</string>
                </property>
@@ -690,7 +690,7 @@
                 <number>0</number>
                </property>
                <item row="0" column="0">
-                <widget class="QLabel" name="label_update_id">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>ID Commande :</string>
                  </property>
@@ -707,7 +707,7 @@
                 </widget>
                </item>
                <item row="1" column="0">
-                <widget class="QLabel" name="label_update_type">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Type d'article :</string>
                  </property>
@@ -748,7 +748,7 @@
                 </widget>
                </item>
                <item row="2" column="0">
-                <widget class="QLabel" name="label_update_quantity">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Quantité :</string>
                  </property>
@@ -762,7 +762,7 @@
                 </widget>
                </item>
                <item row="3" column="0">
-                <widget class="QLabel" name="label_update_email">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Email Client :</string>
                  </property>
@@ -779,7 +779,7 @@
                 </widget>
                </item>
                <item row="4" column="0">
-                <widget class="QLabel" name="label_update_city">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Ville Client :</string>
                  </property>
@@ -915,7 +915,7 @@
                 </widget>
                </item>
                <item row="5" column="0">
-                <widget class="QLabel" name="label_update_status">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Statut :</string>
                  </property>
@@ -951,7 +951,7 @@
                 </widget>
                </item>
                <item row="6" column="0">
-                <widget class="QLabel" name="label_update_date">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Date Commande :</string>
                  </property>
@@ -974,7 +974,7 @@
                 </widget>
                </item>
                <item row="7" column="0">
-                <widget class="QLabel" name="label_update_delivery">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Date Livraison :</string>
                  </property>
@@ -997,7 +997,7 @@
                 </widget>
                </item>
                <item row="8" column="0">
-                <widget class="QLabel" name="label_update_price">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>Prix (TND) :</string>
                  </property>
@@ -1026,7 +1026,7 @@
                 </widget>
                </item>
                <item row="9" column="0">
-                <widget class="QLabel" name="label_update_employee_cin">
+                <widget class="QLabel" name="label">
                  <property name="text">
                   <string>CIN Employé :</string>
                  </property>
@@ -2066,7 +2066,7 @@ QListWidget::item:selected { background-color: #C68E65; color: white; }</string>
              <string>font-size: 24px; font-weight: bold; color: #8B4513;</string>
             </property>
             <property name="text">
-             <string>ASSISTANT IA</string>
+               <string>CHAT BOT</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignmentFlag::AlignCenter</set>

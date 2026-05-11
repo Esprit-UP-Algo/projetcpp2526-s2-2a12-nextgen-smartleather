@@ -1,7 +1,6 @@
-﻿#ifndef COMMANDE_H
-#define COMMANDE_H
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
-#include "arduinosensor.h"
 #include <QMainWindow>
 #include <QDate>
 #include <QMap>
@@ -24,6 +23,12 @@
 #include <QDateEdit>
 #include <QStackedWidget>
 #include <QPushButton>
+#include <QPropertyAnimation>
+#include <QSequentialAnimationGroup>
+#include <QParallelAnimationGroup>
+#include "animationutils.h"
+#include "buttonanimation.h"
+#include "arduinosensor.h"
 
 struct EmailHistory {
     QDateTime dateTime;
@@ -59,11 +64,10 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(const QString &userEmail = QString(), QWidget *parent = nullptr);
+    MainWindow(const QString &loggedEmail = QString(), QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
-    void update_label(); // Gestion des données Arduino
     void onCalendarDateChanged();
     void onExportCalendar();
     void updateStatistics();
@@ -72,6 +76,13 @@ private slots:
     void applyAdvancedFilters();
     void clearAdvancedFilters();
     void checkForNotifications();
+    
+    // Arduino Sensor slots
+    void onArduinoTemperatureReceived(float temperature, float humidity);
+    void onArduinoErrorOccurred(const QString &error);
+    void onArduinoConnectedStatusChanged(bool connected);
+    void connectToArduino();
+    void disconnectFromArduino();
     // void sendEmailToClient(); // Désactivé - envoi automatique uniquement
     void displayEmailHistory();
     void resendEmailFromHistory();
@@ -84,6 +95,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
+    QString m_loggedEmail;
     QMap<QDate, QStringList> deliveryDates; // Date -> List of order IDs
     QMap<QDate, QMap<QString, QString>> deliveryStatuses; // Date -> (OrderID -> Status)
     QTableWidget *table_update = nullptr;
@@ -94,7 +106,7 @@ private:
     int currentSortColumn = 0;
     Qt::SortOrder currentSortOrder = Qt::DescendingOrder;
     MaterialsWindow *materialsWindow = nullptr;
-
+    
     // Configuration SMTP
     QString smtpServer = "smtp.gmail.com";
     int smtpPort = 587;
@@ -121,7 +133,7 @@ private:
     void clearSupplierForm();
     void refreshSupplierTable();
 
-    // Assistant IA
+    // Chat Bot
     void appendAiMessage(const QString &speaker, const QString &text);
     void sendAiMessage(const QString &userText);
     void sendGeminiMessage(const QString &userText);
@@ -170,23 +182,40 @@ private:
     QLineEdit *empDeleteId = nullptr;
     QLabel *empStatsTotal = nullptr;
     QLabel *empStatsAvgSalary = nullptr;
-    QLabel *empStatsHommes = nullptr;
-    QLabel *empStatsFemmes = nullptr;
-    QLabel *empStatsSalMin = nullptr;
-    QLabel *empStatsSalMax = nullptr;
-    QLabel *empStatsPoste = nullptr;
     QStackedWidget *employeeStack = nullptr;
     QList<QPushButton*> employeeTabButtons;
 
-    QString buttonBarStyle;
-    QString m_userEmail;   // email de l'utilisateur connecté
     void applyBarStyle(const QList<QPushButton*> &buttons, bool checkable);
 
     QNetworkAccessManager *aiNetwork = nullptr;
     QString geminiApiKey;
+    QString geminiPreferredModel;
+    QString buttonBarStyle;
 
+    // Animation methods
+    void animateFadeInWidget(QWidget* widget, int duration = 500);
+    void animateFadeOutWidget(QWidget* widget, int duration = 500);
+    void animateSlideInWidget(QWidget* widget, bool fromLeft = true, int duration = 400);
+    void animatePulseWidget(QWidget* widget, int duration = 800);
+    void animateStatisticsUpdate();
+    void animateTableItemAppearance(QTableWidget* table);
+
+    // Arduino Sensor - Variables privées
+    void saveSensorDataToDatabase(float temperature, float humidity);
+    
     ArduinoSensor *arduinoSensor = nullptr;
-    QByteArray data; // Stockage temporaire des données série
-    QLabel *lbl_door_status = nullptr;
+    QTimer *arduinoAutoConnectTimer = nullptr;
+    float currentTemperature = 0.0f;
+    float currentHumidity = 0.0f;
+    float temperatureThreshold = 30.0f;  // Seuil d'alerte en °C (à modifier selon besoin)
+    bool temperatureAlertShown = false;  // Éviter l'affichage multiple
+    bool arduinoConnectedPopupShown = false;
+    bool arduinoUnavailablePopupShown = false;
+    bool sensorDbUnavailableWarningShown = false;
+    QString lastArduinoPort;
+    
+    // Méthodes pour gérer les alertes de température
+    void checkTemperatureThreshold(float temperature);
+    void showTemperatureAlert(float temperature);
 };
 #endif // MAINWINDOW_H

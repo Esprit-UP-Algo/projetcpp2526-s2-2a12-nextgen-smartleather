@@ -4,9 +4,11 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDir>
+#include <QCoreApplication>
 
 static void writeLog(const QString &message) {
-    QFile logFile("smtp_debug.log");
+    const QString logPath = QCoreApplication::applicationDirPath() + "/smtp_debug.log";
+    QFile logFile(logPath);
     if (logFile.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream out(&logFile);
         out << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << " - " << message << "\n";

@@ -1,29 +1,23 @@
+
+
+
+
 #include "connection.h"
 #include <QSqlError>
+#include <QSqlQuery>
 #include <QDebug>
 
 // Initialisation du pointeur d'instance
 Connection* Connection::p_instance = nullptr;
 
-namespace {
-const char* kConnectionName = "smartleather_connection";
-
-QSqlDatabase ensureDatabaseHandle()
-{
-    if (QSqlDatabase::contains(QLatin1String(kConnectionName))) {
-        return QSqlDatabase::database(QLatin1String(kConnectionName));
-    }
-    return QSqlDatabase::addDatabase("QODBC", QLatin1String(kConnectionName));
-}
-}
-
-// Constructeur prive
+// Constructeur privé
 Connection::Connection()
-    : db(ensureDatabaseHandle())
 {
+    // Initialisation de la base de données
+    db = QSqlDatabase::addDatabase("QODBC");
 }
 
-// Methode statique pour obtenir l'instance unique
+// Méthode statique pour obtenir l'instance unique
 Connection* Connection::instance()
 {
     if (p_instance == nullptr) {
@@ -32,29 +26,57 @@ Connection* Connection::instance()
     return p_instance;
 }
 
-// Methode pour etablir la connexion
+// Méthode pour établir la connexion
 bool Connection::createConnect()
 {
-    db = ensureDatabaseHandle();
+    bool test = false;
 
-    if (db.isOpen()) {
-        return true;
-    }
-
-    db.setDatabaseName("smartleather");
-    db.setUserName("smartleather");
-    db.setPassword("smartleather123");
-
-    // Add timeout to prevent hanging
-    db.setConnectOptions("SQL_ATTR_CONNECTION_TIMEOUT=10;SQL_ATTR_LOGIN_TIMEOUT=10");
+    db.setDatabaseName("projet-2a");//inserer le nom de la source de données
+    db.setUserName("rayen");//inserer nom de l'utilisateur
+    db.setPassword("rayen123");//inserer mot de passe de cet utilisateur
 
     if (db.open()) {
-        qDebug() << "Connexion reussie a Oracle via QODBC";
-        return true;
+        test = true;
+        qDebug() << "Connexion à la base de données réussie";
+        
+        // Créer la table UTILISATEUR si elle n'existe pas
+        createUtilisateurTableIfNeeded();
+    } else {
+        qDebug() << "Erreur de connexion:" << db.lastError().text();
     }
 
-    qDebug() << "Erreur connexion :" << db.lastError().text();
-    return false;
+    return test;
+}
+
+// Créer la table UTILISATEUR si elle n'existe pas
+void Connection::createUtilisateurTableIfNeeded()
+{
+    if (!db.isOpen()) {
+        return;
+    }
+
+    // Vérifier si la table existe déjà
+    QSqlQuery checkTable(db);
+    if (checkTable.exec("SELECT 1 FROM UTILISATEUR WHERE ROWNUM = 1")) {
+        qDebug() << "Table UTILISATEUR existe déjà";
+        return;
+    }
+
+    // Créer la table UTILISATEUR
+    QSqlQuery createTable(db);
+    QString createSQL = R"(
+        CREATE TABLE UTILISATEUR (
+            EMAIL VARCHAR2(255) PRIMARY KEY,
+            PASSWORD VARCHAR2(255) NOT NULL,
+            CREATED_AT TIMESTAMP DEFAULT SYSDATE
+        )
+    )";
+
+    if (createTable.exec(createSQL)) {
+        qDebug() << "✓ Table UTILISATEUR créée avec succès";
+    } else {
+        qDebug() << "Erreur création table UTILISATEUR:" << createTable.lastError().text();
+    }
 }
 
 // Fermer la connexion
@@ -65,8 +87,13 @@ void Connection::closeConnection()
     }
 }
 
-// Destructeur
+// Destructeur privé
 Connection::~Connection()
 {
     closeConnection();
 }
+
+
+
+
+

@@ -16,6 +16,7 @@ public:
     static Connection* instance();
     bool createConnect();
     void closeConnection();
+    void createUtilisateurTableIfNeeded();
     QSqlDatabase getDatabase() { return db; }
     // Compat API for modules using database()
     QSqlDatabase database() const { return db; }
